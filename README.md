@@ -1,5 +1,5 @@
 ## Java version used:
-    Oracle Openjdk 1.8.0_442
+    Corretto-1.8 (Amazon) 
 
 ## Language Level
     SDK default (8- Lambdas, type annotations etc.)

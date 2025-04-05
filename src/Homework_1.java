@@ -4,15 +4,46 @@ import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
-import org.apache.spark.storage.StorageLevel;
 import scala.Tuple2;
 
-import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
-public class Homework_1{
+
+public class Homework_1 {
+
+    enum InputSet {
+        SetA,
+        SetB,
+    }
+
+    private static <T> void MRPrintStatistics(JavaRDD<Tuple2<InputSet,T>> universeSet, JavaRDD<T> centerSet) {
+        AtomicInteger centerIndex = new AtomicInteger(0);
+        centerSet.collect().forEach((c) -> {
+            JavaRDD<Tuple2<Long,Long>> belongCount = universeSet.map( t -> {
+                if (t._2.equals(c)) {
+                    switch (t._1)
+                    {
+                        case SetA:
+                            return new Tuple2(1,0);
+                        case SetB:
+                            return new Tuple2(0,1);
+                    }
+                }
+                return new Tuple2(0,0);
+            });
+            Tuple2<Long,Long> countResult = belongCount.reduce((a,b) ->{
+                return new Tuple2(a._1 + b._1, a._2 + b._2);
+            });
+            System.out.printf("i = %d, ",centerIndex.get());
+            System.out.printf("center = (%s), ", c.toString());
+            System.out.printf("NA%d = %d, ",centerIndex.get(), countResult._1);
+            System.out.printf("NB%d = %d\n",centerIndex.get(), countResult._2);
+            centerIndex.addAndGet(1);
+        });
+
+    }
 
     public static void main(String[] args) throws IOException {
 

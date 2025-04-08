@@ -8,6 +8,7 @@ import org.apache.spark.mllib.clustering.KMeans;
 import org.apache.spark.mllib.clustering.KMeansModel;
 import org.apache.spark.mllib.linalg.Vector;
 import org.apache.spark.mllib.linalg.Vectors;
+
 import scala.Tuple2;
 import scala.Tuple3;
 
@@ -15,34 +16,50 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 
 
 public class Homework_1 {
-    private static <T> void MRPrintStatistics(JavaRDD<Tuple2<InputSet, T>> universeSet, List<Vector> centerSet) {
-        AtomicInteger centerIndex = new AtomicInteger(0);
-        centerSet.forEach((c) -> {
-            JavaRDD<Tuple2<Long, Long>> belongCount = universeSet.map(t -> {
-                if (t._2.equals(c)) {
-                    switch (t._1) {
-                        case SetA:
-                            return new Tuple2(1L, 0L);
-                        case SetB:
-                            return new Tuple2(0L, 1L);
+    private static void MRPrintStatistics(JavaRDD<Tuple2<InputSet, Vector>> universeSet, List<Vector> centerSet) {
+        JavaPairRDD<Integer, Tuple2<Integer,Integer>> statistics =
+                universeSet.mapToPair((node) -> {
+                    int bestCenterIndex = 0;
+                    double dist = Vectors.sqdist(node._2(),centerSet.get(0));
+                    for (int i = 0; i < centerSet.size(); i++) {
+                        Vector center = centerSet.get(i);
+                        double dist_2 = Vectors.sqdist(node._2(),center);
+                        if ( dist_2 < dist ){
+                            dist = dist_2;
+                            bestCenterIndex = i;
+                        }
                     }
-                }
-                return new Tuple2(0L, 0L);
-            });
-            Tuple2<Long, Long> countResult = belongCount.reduce((a, b) -> {
-                return new Tuple2(a._1 + b._1, a._2 + b._2);
-            });
-            System.out.printf("i = %d, ", centerIndex.get());
-            System.out.printf("center = (%s), ", c.toString());
-            System.out.printf("NA%d = %d, ", centerIndex.get(), countResult._1);
-            System.out.printf("NB%d = %d\n", centerIndex.get(), countResult._2);
-            centerIndex.addAndGet(1);
-        });
 
+                    Tuple2<Integer,Integer> setSum;
+
+                    if (node._1() == InputSet.SetA){
+                        setSum = new Tuple2<Integer,Integer>(1,0);
+                    }else{
+                        setSum = new Tuple2<Integer,Integer>(0,1);
+                    }
+
+                    return new Tuple2<>(bestCenterIndex,setSum);
+                });
+        List<Tuple2<Integer,Tuple2<Integer,Integer>>> summedPoint = statistics.reduceByKey((old,tuple)->{
+            return new Tuple2<>(old._1() + tuple._1(), old._2() + tuple._2());
+        }).sortByKey().collect();
+
+        summedPoint.forEach((triple) -> {
+            int center_index = triple._1();
+            long nA = triple._2()._1();
+            long nB = triple._2()._2();
+            Vector center = centerSet.get(center_index);
+            System.out.printf("i = %d, center = (%s), NA%d = %d, NB%d = %d\n",
+                    center_index,
+                    center.toString(),
+                    center_index,
+                    nA,
+                    center_index,
+                    nB);
+        });
     }
 
     private static double MRComputeStandardObjective(JavaRDD<Vector> points, List<Vector> centroids) {

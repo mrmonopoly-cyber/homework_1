@@ -11,22 +11,16 @@
 
 
 ## Implementata MRPrintStatistics:: 
-  la funzione prende in input due RDD che contengono 
- le collezioni dei punti. Il primo e' l'universo dei punti e il secondo l'RDD dei centri.
- Il tipo dei punti e' generico cosi' da supportare punti con diverse dimensioni.
- La funzione printa le statistiche nel seguente formato:
-```
-    i = 0, center = (40.749035,-73.984431), NA0 = 725, NB0 = 192
-    i = 1, center = (40.873440,-74.192170), NA1 = 7, NB1 = 3
-    i = 2, center = (40.693363,-74.178147), NA2 = 19, NB2 = 11
-    i = 3, center = (40.746095,-73.830627), NA3 = 31, NB3 = 24
-```
-Uniche pecce:
-```
- -  utilizzo di contatore atomico per contare l'indice degli elementi
- -  collect globale di tutto l'RDD in un nodo. Funziona perche' siamo in globale,
-    in cluster si spacca
-```
+Printa sul terminale i dati relativi al numero di punti di ogni insieme per ogni centro.
+Round 1:
+- MapPhase: Per ogni punto dell'universo cerca il centro piu' vicino e poi crea una tupla che indica a che gruppo (A,B) 
+  appartiene
+- ReducePahse: Raggruppa tutto e somma gli i valori delle tuple tra di loro per ogni centro ottenendo alla fine una lista
+
+Alla fine printa su terminale il risulatato voluto scandendo la lista.
+L'ordine nel print e' garantito da un'operazione di sorting fatta prima della costruzione della
+lista sulla chiave (indice dei centri)
+
 
 ## MRComputeStandardObjective
 

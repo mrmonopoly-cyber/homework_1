@@ -20,46 +20,50 @@ import java.util.List;
 
 public class Homework_1 {
     private static void MRPrintStatistics(JavaRDD<Tuple2<InputSet, Vector>> universeSet, List<Vector> centerSet) {
-        JavaPairRDD<Integer, Tuple2<Integer,Integer>> statistics =
-                universeSet.mapToPair((node) -> {
-                    int bestCenterIndex = 0;
-                    double dist = Vectors.sqdist(node._2(),centerSet.get(0));
-                    for (int i = 0; i < centerSet.size(); i++) {
-                        Vector center = centerSet.get(i);
-                        double dist_2 = Vectors.sqdist(node._2(),center);
-                        if ( dist_2 < dist ){
-                            dist = dist_2;
-                            bestCenterIndex = i;
+                universeSet.mapPartitions((partitions) ->{
+                    List<Tuple3<Integer,Integer,Integer>> partialSum = new ArrayList<>(centerSet.size());
+                    partitions.forEachRemaining(tuple ->{
+                       int bestCenter = 0;
+                        double bestDist = Double.MAX_VALUE;
+                        for(int i=0; i<centerSet.size();i++){
+                            double dist = Vectors.sqdist(tuple._2,centerSet.get(i));
+                            if ( dist < bestDist) {
+                                bestCenter = i;
+                                bestDist = dist;
+                            }
                         }
+                        Tuple3<Integer,Integer,Integer> old = partialSum.get(bestCenter);
+                        if (tuple._1 == InputSet.SetA){
+                            partialSum.set(bestCenter,new Tuple3<>(bestCenter, old._2()+1, old._3()));
+                        }else{
+                            partialSum.set(bestCenter,new Tuple3<>(bestCenter, old._2(), old._3()+1));
+                        }
+                    });
+                    return partialSum.iterator();
+                }).groupBy(Tuple3::_1).mapToPair((partial) ->{
+                    int totNa =0;
+                    int totNb =0;
+                    for (Tuple3<Integer,Integer,Integer> node: partial._2){
+                        totNa += node._2();
+                        totNb += node._3();
                     }
+                    return new Tuple2<>(partial._1,new Tuple2<>(totNa,totNb));
+                }).sortByKey().reduce((centerIndex, centerNodeInfo) ->{
+                    int center_index = centerNodeInfo._1();
+                    long nA = centerNodeInfo._2()._1();
+                    long nB = centerNodeInfo._2()._2();
+                    Vector center = centerSet.get(center_index);
+                    System.out.printf("i = %d, center = (%s), NA%d = %d, NB%d = %d\n",
+                            center_index,
+                            center.toString(),
+                            center_index,
+                            nA,
+                            center_index,
+                            nB);
 
-                    Tuple2<Integer,Integer> setSum;
-
-                    if (node._1() == InputSet.SetA){
-                        setSum = new Tuple2<Integer,Integer>(1,0);
-                    }else{
-                        setSum = new Tuple2<Integer,Integer>(0,1);
-                    }
-
-                    return new Tuple2<>(bestCenterIndex,setSum);
+                    return centerNodeInfo;
                 });
-        List<Tuple2<Integer,Tuple2<Integer,Integer>>> summedPoint = statistics.reduceByKey((old,tuple)->{
-            return new Tuple2<>(old._1() + tuple._1(), old._2() + tuple._2());
-        }).sortByKey().collect();
 
-        summedPoint.forEach((triple) -> {
-            int center_index = triple._1();
-            long nA = triple._2()._1();
-            long nB = triple._2()._2();
-            Vector center = centerSet.get(center_index);
-            System.out.printf("i = %d, center = (%s), NA%d = %d, NB%d = %d\n",
-                    center_index,
-                    center.toString(),
-                    center_index,
-                    nA,
-                    center_index,
-                    nB);
-        });
     }
 
     private static double MRComputeStandardObjective(JavaRDD<Vector> points, List<Vector> centroids) {

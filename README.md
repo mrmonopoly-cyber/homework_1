@@ -13,13 +13,14 @@
 ## Implementata MRPrintStatistics:: 
 Printa sul terminale i dati relativi al numero di punti di ogni insieme per ogni centro.
 Round 1:
-- MapPhase: Per ogni punto dell'universo cerca il centro piu' vicino e poi crea una tupla che indica a che gruppo (A,B) 
-  appartiene
-- ReducePahse: Raggruppa tutto e somma gli i valori delle tuple tra di loro per ogni centro ottenendo alla fine una lista
-
-Alla fine printa su terminale il risulatato voluto scandendo la lista.
-L'ordine nel print e' garantito da un'operazione di sorting fatta prima della costruzione della
-lista sulla chiave (indice dei centri)
+- Map Phase: Partizionamento dell'insieme unioverso di input. In ogni partizione cerco per ogni 
+    punto il centro piu' vicino 
+- Reduce Phase: Raggruppa i valori delle partizioni per ogni chiave(indice del centro) ottengo (indice del centro, Na, Nb)
+ Le triple sono poi ordinate basandosi sulla chiave (indice del centro)
+Round 2:
+- Reduce Phase: Scandisco linearmente la lista dei dati e stampo sul terminale 
+ i dati nel seguente formato:
+  i = [indice_del_centro], center = ([coordinate_del_centro]), NA = [numero_di_punti_in_A], NB = [numero_di_punti_in_B] 
 
 
 ## MRComputeStandardObjective

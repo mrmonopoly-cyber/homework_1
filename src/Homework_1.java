@@ -16,24 +16,27 @@ import java.util.*;
 
 public class Homework_1 {
     private static void MRPrintStatistics(JavaPairRDD<InputSet, Vector> universeSet, List<Vector> centerSet) {
-                universeSet.mapPartitions((partitions) ->{
-                    List<Tuple3<Integer,Integer,Integer>> partialSum = new ArrayList<>(centerSet.size());
+                List<Tuple2<Integer,Tuple2<Integer,Integer>>> centerInfoList = universeSet.mapPartitions((partitions) ->{
+                    List<Tuple3<Integer,Integer,Integer>> partialSum = new ArrayList<>(0);
+                    for(int i=0;i<centerSet.size();i++){
+                        partialSum.add(new Tuple3<>(i,0,0));
+                    }
                     partitions.forEachRemaining(tuple ->{
                        int bestCenter = 0;
-                        double bestDist = Double.MAX_VALUE;
-                        for(int i=0; i<centerSet.size();i++){
-                            double dist = Vectors.sqdist(tuple._2,centerSet.get(i));
-                            if ( dist < bestDist) {
-                                bestCenter = i;
-                                bestDist = dist;
-                            }
-                        }
-                        Tuple3<Integer,Integer,Integer> old = partialSum.get(bestCenter);
-                        if (tuple._1 == InputSet.SetA){
-                            partialSum.set(bestCenter,new Tuple3<>(bestCenter, old._2()+1, old._3()));
-                        }else{
-                            partialSum.set(bestCenter,new Tuple3<>(bestCenter, old._2(), old._3()+1));
-                        }
+                       double bestDist = Double.MAX_VALUE;
+                       for(int i=0; i<centerSet.size();i++){
+                           double dist = Vectors.sqdist(tuple._2,centerSet.get(i));
+                           if ( dist < bestDist) {
+                               bestCenter = i;
+                               bestDist = dist;
+                           }
+                       }
+                       Tuple3<Integer,Integer,Integer> old = partialSum.get(bestCenter);
+                       if (tuple._1 == InputSet.SetA){
+                           partialSum.set(bestCenter,new Tuple3<>(bestCenter, old._2()+1, old._3()));
+                       }else{
+                           partialSum.set(bestCenter,new Tuple3<>(bestCenter, old._2(), old._3()+1));
+                       }
                     });
                     return partialSum.iterator();
                 }).groupBy(Tuple3::_1).mapToPair((partial) ->{
@@ -44,22 +47,21 @@ public class Homework_1 {
                         totNb += node._3();
                     }
                     return new Tuple2<>(partial._1,new Tuple2<>(totNa,totNb));
-                }).sortByKey().reduce((centerIndex, centerNodeInfo) ->{
-                    int center_index = centerNodeInfo._1();
-                    long nA = centerNodeInfo._2()._1();
-                    long nB = centerNodeInfo._2()._2();
-                    Vector center = centerSet.get(center_index);
+                }).sortByKey().collect();
+
+                centerInfoList.forEach(center ->{
+                    int center_index = center._1();
+                    long nA = center._2()._1();
+                    long nB = center._2()._2();
+                    Vector centerPos = centerSet.get(center_index);
                     System.out.printf("i = %d, center = (%s), NA%d = %d, NB%d = %d\n",
                             center_index,
-                            center.toString(),
+                            centerPos.toString(),
                             center_index,
                             nA,
                             center_index,
                             nB);
-
-            return centerNodeInfo;
-        });
-
+                });
     }
 
     private static double MRComputeStandardObjective(JavaRDD<Vector> points, List<Vector> centroids) {

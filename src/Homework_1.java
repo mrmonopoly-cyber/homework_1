@@ -20,7 +20,7 @@ import java.util.List;
 
 public class Homework_1 {
     private static void MRPrintStatistics(JavaRDD<Tuple2<InputSet, Vector>> universeSet, List<Vector> centerSet) {
-                universeSet.mapPartitions((partitions) ->{
+                List<Tuple2<Integer,Tuple2<Integer,Integer>>> CenterList= universeSet.mapPartitions((partitions) ->{
                     List<Tuple3<Integer,Integer,Integer>> partialSum = new ArrayList<>(centerSet.size());
                     partitions.forEachRemaining(tuple ->{
                        int bestCenter = 0;
@@ -48,20 +48,20 @@ public class Homework_1 {
                         totNb += node._3();
                     }
                     return new Tuple2<>(partial._1,new Tuple2<>(totNa,totNb));
-                }).sortByKey().reduce((centerIndex, centerNodeInfo) ->{
-                    int center_index = centerNodeInfo._1();
-                    long nA = centerNodeInfo._2()._1();
-                    long nB = centerNodeInfo._2()._2();
-                    Vector center = centerSet.get(center_index);
+                }).sortByKey().collect();
+
+                CenterList.forEach( (center) ->{
+                    int center_index = center._1();
+                    long nA = center._2()._1();
+                    long nB = center._2()._2();
+                    Vector centerPoint = centerSet.get(center_index);
                     System.out.printf("i = %d, center = (%s), NA%d = %d, NB%d = %d\n",
                             center_index,
-                            center.toString(),
+                            centerPoint.toString(),
                             center_index,
                             nA,
                             center_index,
                             nB);
-
-                    return centerNodeInfo;
                 });
 
     }

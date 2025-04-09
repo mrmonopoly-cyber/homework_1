@@ -1,0 +1,61 @@
+\documentclass[11pt,letterpaper, onecolumn]{exam}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage[hmargin=0.8in, tmargin=0.8in]{geometry}  %For centering solution box
+\lhead{Leaft Header\\}
+\rhead{Right Header\\}
+% \chead{\hline} % Un-comment to draw line below header
+\thispagestyle{empty}   %For removing header/footer from page 1
+
+\begin{document}
+
+\begingroup  
+    \centering
+    \large Big Data Computing\\
+    \large Homework 1\\[0.3em]
+    \small \today\\[0.5em]
+    \small Authors: Damo Alberto (2125764), Prandin Tommaso (2166583)\par
+    \small Group 8\par
+\endgroup
+\rule{\textwidth}{0.4pt}
+
+There it follows the analysis of the \textit{MapReduce} algorithm implemented in the \texttt{MRPrintStatistics} method
+
+We will assume the input of $N$ size to be subdivided in $L$ partitions, with each point being in the shape $(l, v)$, where $l$ is the group label assigned to the point and $v \in \mathbb{R}^{n}$ a vector.
+\section{Algorithm Description}
+\begin{itemize}
+    \item \textbf{Round 1:}
+    \begin{itemize}
+        \item \textit{MapPhase}: empty, since the data has already been partitioned after input parsing.
+        \item \textit{ReducePhase}: for each partition compute the partial counts for every cluster by applying the \texttt{mapPartitions} method. Let $i$ be the index of the partition and $p_i = $ the set containing all the points $x$ in the $i$-th partition.
+        Then
+        $$
+        (i, p_i) \mapsto \{(j, n_A, n_B)\  \forall j = 1, \dots, k\}
+        $$
+    \end{itemize}
+    \item \textbf{Round 2:}
+    \begin{itemize}
+        \item \textit{MapPhase}: empty
+        \item \textit{ReducePhase}: for each cluster index $j = 1, \dots, k$, let $p_j = $ the list of partial counts for the $j$-th cluster.
+        Then
+        $$
+            (j, p_j) \mapsto (j, \sum_{p \in p_j}n_A, \sum_{p \in p_j}n_B)
+        $$
+    \end{itemize}
+\end{itemize}
+
+At the end the results are collected and the statistics accumulated are printed.
+
+\section{Analysis}
+\begin{itemize}
+    \item \textbf{Number of rounds}: constant $= 2$
+    \item \textbf{Local space $M_L$}:
+    the map phases are ignored since they are empty
+    \begin{itemize}
+        \item \textit{Round 1 reduce}: The local memory usage is $O(\frac{N}{L})$, because the \texttt{mapPartitions} method works on the partitions one by one in parallel
+        \item \textit{Round 2 reduce}: The local memory usage is $O(L)$, since for every reducer (hence every cluster) there will be at most $L$ partial counts.
+    \end{itemize}
+    \item \textbf{Aggregate space $M_A$}: The input set requires an aggregate space on the order of $O(N)$, the intermediate pairs require $O(L \cdot k)$ space. The final output requires $O(k)$ space. Since $k$ is assumed to be small ($k = o(N)$), and $L$ is a constant, the total required aggregate space $M_A$ is $O(N)$.
+\end{itemize}
+
+\end{document}

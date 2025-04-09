@@ -8,18 +8,14 @@ import org.apache.spark.mllib.clustering.KMeans;
 import org.apache.spark.mllib.clustering.KMeansModel;
 import org.apache.spark.mllib.linalg.Vector;
 import org.apache.spark.mllib.linalg.Vectors;
-
 import scala.Tuple2;
 import scala.Tuple3;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Iterator;
-import java.util.List;
+import java.util.*;
 
 
 public class Homework_1 {
-    private static void MRPrintStatistics(JavaRDD<Tuple2<InputSet, Vector>> universeSet, List<Vector> centerSet) {
+    private static void MRPrintStatistics(JavaPairRDD<InputSet, Vector> universeSet, List<Vector> centerSet) {
                 universeSet.mapPartitions((partitions) ->{
                     List<Tuple3<Integer,Integer,Integer>> partialSum = new ArrayList<>(centerSet.size());
                     partitions.forEachRemaining(tuple ->{
@@ -61,38 +57,31 @@ public class Homework_1 {
                             center_index,
                             nB);
 
-                    return centerNodeInfo;
-                });
+            return centerNodeInfo;
+        });
 
     }
 
     private static double MRComputeStandardObjective(JavaRDD<Vector> points, List<Vector> centroids) {
         Tuple2<Double, Integer> total = points
-                .mapPartitionsWithIndex((index, partition) -> {
-                    ArrayList<Tuple3<Integer, Double, Integer>> distances = new ArrayList<>();
-                    partition.forEachRemaining(point -> {
+                .mapPartitionsToPair(partition -> {
+                    // (1, (sum_squared_distances, count))
+                    double partition_cost = 0.0;
+                    int partition_count = 0;
+
+                    while (partition.hasNext()) {
+                        Vector point = partition.next();
                         // Compute min squared distance from centroids
                         double cost = Double.POSITIVE_INFINITY;
                         for (Vector center : centroids) {
                             double distance = Vectors.sqdist(point, center);
                             cost = Math.min(distance, cost);
                         }
-                        distances.add(new Tuple3<>(index, cost, 1));
-                    });
-                    return distances.iterator();
-                }, true)
-                .groupBy(Tuple3::_1)
-                .mapToPair((partials) -> {
-                    Iterator<Tuple3<Integer, Double, Integer>> it = partials._2.iterator();
-                    double cost = 0.0;
-                    int count = 0;
-                    while (it.hasNext()) {
-                        Tuple3<Integer, Double, Integer> partial = it.next();
-                        cost += partial._2();
-                        count += partial._3();
+                        partition_cost += cost;
+                        partition_count++;
                     }
-                    return new Tuple2<>(1, new Tuple2<>(cost, count));
-                })
+                    return Collections.singletonList(new Tuple2<>(1, new Tuple2<>(partition_cost, partition_count))).iterator();
+                }, true)
                 .reduceByKey((p1, p2) -> new Tuple2<>(p1._1 + p2._1, p1._2 + p2._2))
                 .collectAsMap()
                 .get(1);
@@ -223,7 +212,7 @@ public class Homework_1 {
         double fair_cost = MRComputeFairObjective(inputPoints, Arrays.asList(clusters.clusterCenters()));
         System.out.printf("Phi(A, B, C) = %f\n", fair_cost);
 
-//        MRPrintStatistics(inputPoints, Arrays.asList(clusters.clusterCenters()));
+        MRPrintStatistics(inputPoints, Arrays.asList(clusters.clusterCenters()));
     }
 
     enum InputSet {

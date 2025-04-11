@@ -21,13 +21,13 @@
 
 There it follows the analysis of the \textit{MapReduce} algorithm implemented in the \texttt{MRPrintStatistics} method
 
-We will assume the input of $N$ size to be subdivided in $L$ partitions, with each point being in the shape $(l, v)$, where $l$ is the group label assigned to the point and $v \in \mathbb{R}^{n}$ a vector.
+We will assume the input of size $N$ to be subdivided in $L$ partitions, with each point being in the shape $(l, v)$, where $l$ is the group label assigned to the point and $v \in \mathbb{R}^{n}$ a vector.
 \section{Algorithm Description}
 \begin{itemize}
     \item \textbf{Round 1:}
     \begin{itemize}
         \item \textit{MapPhase}: empty, since the data has already been partitioned after input parsing.
-        \item \textit{ReducePhase}: for each partition compute the partial counts for every cluster by applying the \texttt{mapPartitions} method. Let $i$ be the index of the partition and $p_i = $ the set containing all the points $x$ in the $i$-th partition.
+        \item \textit{ReducePhase}: for each partition compute the partial counts for every cluster by applying the \texttt{mapPartitions} method. Let $i$ be the index of the partition and $p_i = \{x : x \in i\text{-th partition}\}$.
         Then
         $$
         (i, p_i) \mapsto \{(j, n_A, n_B)\  \forall j = 1, \dots, k\}
@@ -41,10 +41,11 @@ We will assume the input of $N$ size to be subdivided in $L$ partitions, with ea
         $$
             (j, p_j) \mapsto (j, \sum_{p \in p_j}n_A, \sum_{p \in p_j}n_B)
         $$
+        This is implemented by first grouping the partials using \texttt{groupBy}, and then calling \texttt{mapToPair}
     \end{itemize}
 \end{itemize}
 
-At the end the results are collected and the statistics accumulated are printed.
+At the end the results are collected (using \texttt{collect}), sorted (using \texttt{sort}) them and the statistics accumulated are printed in order of ascending cluster index.
 
 \section{Analysis}
 \begin{itemize}
@@ -52,10 +53,10 @@ At the end the results are collected and the statistics accumulated are printed.
     \item \textbf{Local space $M_L$}:
     the map phases are ignored since they are empty
     \begin{itemize}
-        \item \textit{Round 1 reduce}: The local memory usage is $O(\frac{N}{L})$, because the \texttt{mapPartitions} method works on the partitions one by one in parallel
-        \item \textit{Round 2 reduce}: The local memory usage is $O(L)$, since for every reducer (hence every cluster) there will be at most $L$ partial counts.
+        \item \textit{Round 1 reduce}: The local memory usage is $O(\frac{N}{L})$, because the \texttt{mapPartitions} method operates on the partitions one by one, with the partitions being of size $\simeq N/L$. The local computation keeps a list of size $O(k) = o(N)$ to store intermediate results, updated by iterating over the points.
+        \item \textit{Round 2 reduce}: After grouping by cluster index, there will be at most $L$ partial counts (one per partition) for each cluster, and only two integer counters are used for reduction. Hence local memory usage is $O(L)$.
+        \item \textit{Final operations}: At the end results are collected locally, sorted and printed. The size of the output of the final stage for the MR algorithm is $k = o(N)$ triplets
     \end{itemize}
-    \item \textbf{Aggregate space $M_A$}: The input set requires an aggregate space on the order of $O(N)$, the intermediate pairs require $O(L \cdot k)$ space. The final output requires $O(k)$ space. Since $k$ is assumed to be small ($k = o(N)$), and $L$ is a constant, the total required aggregate space $M_A$ is $O(N)$.
 \end{itemize}
 
 \end{document}

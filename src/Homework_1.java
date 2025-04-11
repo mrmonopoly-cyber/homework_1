@@ -16,13 +16,13 @@ import java.util.*;
 
 public class Homework_1 {
     private static void MRPrintStatistics(JavaPairRDD<InputSet, Vector> universeSet, List<Vector> centerSet) {
-        List<Tuple2<Integer, Tuple2<Integer, Integer>>> centerInfoList = universeSet.mapPartitions((partitions) -> {
+        List<Tuple2<Integer, Tuple2<Integer, Integer>>> centerInfoList = universeSet.mapPartitions(partition -> {
             // for each partition compute (cluster_index, partial_count_na, partial_count_nb)
             List<Tuple3<Integer, Integer, Integer>> partialSum = new ArrayList<>(0);
             for (int i = 0; i < centerSet.size(); i++) {
                 partialSum.add(new Tuple3<>(i, 0, 0));
             }
-            partitions.forEachRemaining(tuple -> {
+            partition.forEachRemaining(tuple -> {
                 int bestCenter = 0;
                 double bestDist = Double.MAX_VALUE;
                 for (int i = 0; i < centerSet.size(); i++) {
@@ -41,15 +41,16 @@ public class Homework_1 {
             });
             return partialSum.iterator();
             // Group partial counts for every cluster and aggregate counts (cluster_index, count_na, count_nb)
-        }).groupBy(Tuple3::_1).mapToPair((partial) -> {
+        }).groupBy(Tuple3::_1).mapToPair(partials -> {
             int totNa = 0;
             int totNb = 0;
-            for (Tuple3<Integer, Integer, Integer> node : partial._2) {
-                totNa += node._2();
-                totNb += node._3();
+            for (Tuple3<Integer, Integer, Integer> partial : partials._2) {
+                totNa += partial._2();
+                totNb += partial._3();
             }
-            return new Tuple2<>(partial._1, new Tuple2<>(totNa, totNb));
-            // Sort to print clusters in asc order
+            return new Tuple2<>(partials._1, new Tuple2<>(totNa, totNb));
+
+            // Sort to print clusters in asc order to print orderly
         }).sortByKey().collect();
 
         centerInfoList.forEach(center -> {
@@ -57,9 +58,20 @@ public class Homework_1 {
             long nA = center._2()._1();
             long nB = center._2()._2();
             Vector centerPos = centerSet.get(center_index);
-            System.out.printf("i = %d, center = (%s), NA%d = %d, NB%d = %d\n",
+            String centerStr = "(";
+            int i = 1;
+            for (double dim : centerPos.toArray()) {
+                if (i < centerPos.size()) {
+                    centerStr = String.format("%s%.6f,", centerStr, dim);
+                }
+                else {
+                    centerStr = String.format("%s%.6f)", centerStr, dim);
+                }
+                i++;
+            }
+            System.out.printf("i = %d, center = %s, NA%d = %d, NB%d = %d\n",
                     center_index,
-                    centerPos.toString(),
+                    centerStr,
                     center_index,
                     nA,
                     center_index,
@@ -70,7 +82,7 @@ public class Homework_1 {
     private static double MRComputeStandardObjective(JavaRDD<Vector> points, List<Vector> centroids) {
         Tuple2<Double, Integer> total = points
                 .mapPartitionsToPair(partition -> {
-                    // (1, (sum_squared_distances, count))
+                    //  for each partition compute (1, (sum_squared_distances, count))
                     double partition_cost = 0.0;
                     int partition_count = 0;
 
@@ -196,27 +208,23 @@ public class Homework_1 {
         // K-MEANS CLUSTERING
         // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 
-        // Strip class information from original dataset
-        JavaRDD<Vector> strippedInputPoints = inputPoints.mapPartitions((points) -> {
-            ArrayList<Vector> strippedPoints = new ArrayList<>();
-            while (points.hasNext()) {
-                strippedPoints.add(points.next()._2);
-            }
-            return strippedPoints.iterator();
-        }, true).cache();
-
         // Cluster the data into two classes using KMeans
-        KMeansModel clusters = KMeans.train(strippedInputPoints.rdd(), K, M);
+        KMeansModel clusters = KMeans.train(inputPoints.map(point -> point._2).rdd(), K, M);
 
 
         // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-        // STANDARD OBJECTIVE COST
+        // OBJECTIVE COST
         // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-        double standard_cost = MRComputeStandardObjective(inputPoints.map(point -> point._2), Arrays.asList(clusters.clusterCenters()));
-        System.out.printf("Delta(U, C) = %f\n", standard_cost);
-        double fair_cost = MRComputeFairObjective(inputPoints, Arrays.asList(clusters.clusterCenters()));
-        System.out.printf("Phi(A, B, C) = %f\n", fair_cost);
+        // Standard
+        double standardCost = MRComputeStandardObjective(inputPoints.map(point -> point._2), Arrays.asList(clusters.clusterCenters()));
+        System.out.printf("Delta(U, C) = %.6f\n", standardCost);
+        // Fair
+        double fairCost = MRComputeFairObjective(inputPoints, Arrays.asList(clusters.clusterCenters()));
+        System.out.printf("Phi(A, B, C) = %.6f\n", fairCost);
 
+        // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+        // STATISTICS
+        // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
         MRPrintStatistics(inputPoints, Arrays.asList(clusters.clusterCenters()));
     }
 

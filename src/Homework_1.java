@@ -17,6 +17,7 @@ import java.util.*;
 
 
 public class Homework_1 {
+
       public static double[] computeVectorX(double fixedA, double fixedB, double[] alpha, double[] beta, double[] ell, int K) {
         double gamma = 0.5;
         double[] xDist = new double[K];
@@ -41,52 +42,52 @@ public class Homework_1 {
     }
 
     private static void MRPrintStatistics(JavaPairRDD<InputSet, Vector> universeSet, List<Vector> centerSet) {
-                List<Tuple2<Integer,Tuple2<Integer,Integer>>> centerInfoList = universeSet.mapPartitions((partitions) ->{
-                    List<Tuple3<Integer,Integer,Integer>> partialSum = new ArrayList<>(0);
-                    for(int i=0;i<centerSet.size();i++){
-                        partialSum.add(new Tuple3<>(i,0,0));
-                    }
-                    partitions.forEachRemaining(tuple ->{
-                       int bestCenter = 0;
-                       double bestDist = Double.MAX_VALUE;
-                       for(int i=0; i<centerSet.size();i++){
-                           double dist = Vectors.sqdist(tuple._2,centerSet.get(i));
-                           if ( dist < bestDist) {
-                               bestCenter = i;
-                               bestDist = dist;
-                           }
-                       }
-                       Tuple3<Integer,Integer,Integer> old = partialSum.get(bestCenter);
-                       if (tuple._1 == InputSet.SetA){
-                           partialSum.set(bestCenter,new Tuple3<>(bestCenter, old._2()+1, old._3()));
-                       }else{
-                           partialSum.set(bestCenter,new Tuple3<>(bestCenter, old._2(), old._3()+1));
-                       }
-                    });
-                    return partialSum.iterator();
-                }).groupBy(Tuple3::_1).mapToPair((partial) ->{
-                    int totNa =0;
-                    int totNb =0;
-                    for (Tuple3<Integer,Integer,Integer> node: partial._2){
-                        totNa += node._2();
-                        totNb += node._3();
-                    }
-                    return new Tuple2<>(partial._1,new Tuple2<>(totNa,totNb));
-                }).sortByKey().collect();
+      List<Tuple2<Integer,Tuple2<Integer,Integer>>> centerInfoList = universeSet.mapPartitions((partitions) ->{
+        List<Tuple3<Integer,Integer,Integer>> partialSum = new ArrayList<>(0);
+        for(int i=0;i<centerSet.size();i++){
+          partialSum.add(new Tuple3<>(i,0,0));
+        }
+        partitions.forEachRemaining(tuple ->{
+          int bestCenter = 0;
+          double bestDist = Double.MAX_VALUE;
+          for(int i=0; i<centerSet.size();i++){
+            double dist = Vectors.sqdist(tuple._2,centerSet.get(i));
+            if ( dist < bestDist) {
+              bestCenter = i;
+              bestDist = dist;
+            }
+          }
+          Tuple3<Integer,Integer,Integer> old = partialSum.get(bestCenter);
+          if (tuple._1 == InputSet.SetA){
+            partialSum.set(bestCenter,new Tuple3<>(bestCenter, old._2()+1, old._3()));
+          }else{
+            partialSum.set(bestCenter,new Tuple3<>(bestCenter, old._2(), old._3()+1));
+          }
+        });
+        return partialSum.iterator();
+      }).groupBy(Tuple3::_1).mapToPair((partial) ->{
+        int totNa =0;
+        int totNb =0;
+        for (Tuple3<Integer,Integer,Integer> node: partial._2){
+          totNa += node._2();
+          totNb += node._3();
+        }
+        return new Tuple2<>(partial._1,new Tuple2<>(totNa,totNb));
+      }).sortByKey().collect();
 
-                centerInfoList.forEach(center ->{
-                    int center_index = center._1();
-                    long nA = center._2()._1();
-                    long nB = center._2()._2();
-                    Vector centerPos = centerSet.get(center_index);
-                    System.out.printf("i = %d, center = (%s), NA%d = %d, NB%d = %d\n",
-                            center_index,
-                            centerPos.toString(),
-                            center_index,
-                            nA,
-                            center_index,
-                            nB);
-                });
+      centerInfoList.forEach(center ->{
+        int center_index = center._1();
+        long nA = center._2()._1();
+        long nB = center._2()._2();
+        Vector centerPos = centerSet.get(center_index);
+        System.out.printf("i = %d, center = (%s), NA%d = %d, NB%d = %d\n",
+            center_index,
+            centerPos.toString(),
+            center_index,
+            nA,
+            center_index,
+            nB);
+      });
     }
 
     private static double MRComputeStandardObjective(JavaRDD<Vector> points, List<Vector> centroids) {
@@ -137,15 +138,20 @@ public class Homework_1 {
         return Math.max(objA, objB);
     }
 
-    private static List<Vector> MRFairLloyd(JavaRDD<Vector> UniversePointSet, int K, int M){
+    private static Vector[] MRFairLloyd(JavaPairRDD<InputSet,Vector> UniversePointSet, int K, int M){
       //INFO: Initializes a set C of K centroids using kmeans||
-      KMeansModel cluster = KMeans.train(UniversePointSet.rdd(), K, 0); 
+      List<Vector> initializer = new ArrayList<>();
+      JavaSparkContext sparkContext = new JavaSparkContext();
+      JavaRDD<Vector> rdd = sparkContext.parallelize(initializer);
+
+      Vector[] C= KMeans.train(rdd.rdd(), K, 0).clusterCenters(); 
 
       for(int i=0;i<M;i++)
       {
       }
 
-      return Arrays.asList(cluster.clusterCenters());
+      sparkContext.close();
+      return C;
     }
 
     public static void main(String[] args) {
@@ -239,18 +245,35 @@ public class Homework_1 {
         }, true).cache();
 
         // Cluster the data into two classes using KMeans
-        KMeansModel clusters = KMeans.train(strippedInputPoints.rdd(), K, M);
+        long startStandardKMeans = System.currentTimeMillis();
+        List<Vector> Standardclusters = Arrays.asList(KMeans.train(strippedInputPoints.rdd(), K, M).clusterCenters());
+        long endStandardKMeans = System.currentTimeMillis();
+        long startStandardObjective = System.currentTimeMillis();
+        double standardCost = MRComputeFairObjective(inputPoints, Standardclusters);
+        long endStandardObjective = System.currentTimeMillis();
+        System.out.printf("objective function output with standard Lloyd's algorithm :%d", standardCost);
+        System.out.printf("time to compute standard KMeans: %d", (endStandardKMeans - startStandardKMeans)/1000);
+        System.out.printf("time to compute objective function with standard centroids: %d", (endStandardObjective - startStandardObjective)/1000);
+
+        long startFairKMeans = System.currentTimeMillis();
+        Vector[] Fairclusters = MRFairLloyd(inputPoints, K, M);
+        long endFairKMeans = System.currentTimeMillis();
+        long startFairObjective = System.currentTimeMillis();
+        double fairCost = MRComputeFairObjective(inputPoints, Arrays.asList(Fairclusters));
+        long endFairObjective = System.currentTimeMillis();
+        System.out.printf("objective function output with fair Lloyd's algorithm :%d", fairCost);
+        System.out.printf("time to compute fair KMeans: %d", (endFairKMeans - startFairKMeans)/1000);
+        System.out.printf("time to compute objective function with fair centroids: %d", (endFairObjective - startFairObjective)/1000);
 
 
         // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
         // STANDARD OBJECTIVE COST
         // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-        double standard_cost = MRComputeStandardObjective(inputPoints.map(point -> point._2), Arrays.asList(clusters.clusterCenters()));
-        System.out.printf("Delta(U, C) = %f\n", standard_cost);
-        double fair_cost = MRComputeFairObjective(inputPoints, Arrays.asList(clusters.clusterCenters()));
-        System.out.printf("Phi(A, B, C) = %f\n", fair_cost);
+        double standard_cost = MRComputeStandardObjective(inputPoints.map(point -> point._2), Standardclusters);
+        // System.out.printf("Delta(U, C) = %f\n", standard_cost);
+        // System.out.printf("Phi(A, B, C) = %f\n", standardCost);
 
-        MRPrintStatistics(inputPoints, Arrays.asList(clusters.clusterCenters()));
+        MRPrintStatistics(inputPoints, Standardclusters);
     }
 
     enum InputSet {

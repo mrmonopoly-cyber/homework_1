@@ -76,3 +76,4 @@ fabric.properties
 .settings
 .classpath
 out.html
+.gradle

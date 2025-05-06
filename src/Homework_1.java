@@ -8,6 +8,8 @@ import org.apache.spark.mllib.clustering.KMeans;
 import org.apache.spark.mllib.clustering.KMeansModel;
 import org.apache.spark.mllib.linalg.Vector;
 import org.apache.spark.mllib.linalg.Vectors;
+import org.apache.spark.rdd.RDD;
+
 import scala.Tuple2;
 import scala.Tuple3;
 
@@ -15,6 +17,29 @@ import java.util.*;
 
 
 public class Homework_1 {
+      public static double[] computeVectorX(double fixedA, double fixedB, double[] alpha, double[] beta, double[] ell, int K) {
+        double gamma = 0.5;
+        double[] xDist = new double[K];
+        double fA, fB;
+        double power = 0.5;
+        int T = 10;
+        for (int t=1; t<=T; t++){
+            fA = fixedA;
+            fB = fixedB;
+            power = power/2;
+            for (int i=0; i<K; i++) {
+                double temp = (1-gamma)*beta[i]*ell[i]/(gamma*alpha[i]+(1-gamma)*beta[i]);
+                xDist[i]=temp;
+                fA += alpha[i]*temp*temp;
+                temp=(ell[i]-temp);
+                fB += beta[i]*temp*temp;
+            }
+            if (fA == fB) {break;}
+            gamma = (fA > fB) ? gamma+power : gamma-power;
+        }
+        return xDist;
+    }
+
     private static void MRPrintStatistics(JavaPairRDD<InputSet, Vector> universeSet, List<Vector> centerSet) {
                 List<Tuple2<Integer,Tuple2<Integer,Integer>>> centerInfoList = universeSet.mapPartitions((partitions) ->{
                     List<Tuple3<Integer,Integer,Integer>> partialSum = new ArrayList<>(0);
@@ -110,6 +135,17 @@ public class Homework_1 {
 
         // Return maximum of the two objectives (fair objective)
         return Math.max(objA, objB);
+    }
+
+    private static List<Vector> MRFairLloyd(JavaRDD<Vector> UniversePointSet, int K, int M){
+      //INFO: Initializes a set C of K centroids using kmeans||
+      KMeansModel cluster = KMeans.train(UniversePointSet.rdd(), K, 0); 
+
+      for(int i=0;i<M;i++)
+      {
+      }
+
+      return Arrays.asList(cluster.clusterCenters());
     }
 
     public static void main(String[] args) {

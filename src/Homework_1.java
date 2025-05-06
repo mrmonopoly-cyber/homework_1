@@ -5,10 +5,8 @@ import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.mllib.clustering.KMeans;
-import org.apache.spark.mllib.clustering.KMeansModel;
 import org.apache.spark.mllib.linalg.Vector;
 import org.apache.spark.mllib.linalg.Vectors;
-import org.apache.spark.rdd.RDD;
 
 import scala.Tuple2;
 import scala.Tuple3;
@@ -244,8 +242,6 @@ public class Homework_1 {
             return strippedPoints.iterator();
         }, true).cache();
 
-        // Cluster the data into two classes using KMeans
-
         // Computation of Standard Stats
         long startStandardKMeans = System.currentTimeMillis();
         List<Vector> Standardclusters = Arrays.asList(KMeans.train(strippedInputPoints.rdd(), K, M).clusterCenters());
@@ -276,7 +272,7 @@ public class Homework_1 {
         // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
         // STANDARD OBJECTIVE COST
         // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-        double standard_cost = MRComputeStandardObjective(inputPoints.map(point -> point._2), Standardclusters);
+        // double standard_cost = MRComputeStandardObjective(inputPoints.map(point -> point._2), Standardclusters);
         // System.out.printf("Delta(U, C) = %f\n", standard_cost);
         // System.out.printf("Phi(A, B, C) = %f\n", standardCost);
 

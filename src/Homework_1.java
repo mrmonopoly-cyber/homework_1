@@ -245,26 +245,33 @@ public class Homework_1 {
         }, true).cache();
 
         // Cluster the data into two classes using KMeans
+
+        // Computation of Standard Stats
         long startStandardKMeans = System.currentTimeMillis();
         List<Vector> Standardclusters = Arrays.asList(KMeans.train(strippedInputPoints.rdd(), K, M).clusterCenters());
         long endStandardKMeans = System.currentTimeMillis();
         long startStandardObjective = System.currentTimeMillis();
         double standardCost = MRComputeFairObjective(inputPoints, Standardclusters);
         long endStandardObjective = System.currentTimeMillis();
-        System.out.printf("objective function output with standard Lloyd's algorithm :%d", standardCost);
-        System.out.printf("time to compute standard KMeans: %d", (endStandardKMeans - startStandardKMeans)/1000);
-        System.out.printf("time to compute objective function with standard centroids: %d", (endStandardObjective - startStandardObjective)/1000);
 
+        // Computation of Fair Stats
         long startFairKMeans = System.currentTimeMillis();
         Vector[] Fairclusters = MRFairLloyd(inputPoints, K, M);
         long endFairKMeans = System.currentTimeMillis();
         long startFairObjective = System.currentTimeMillis();
         double fairCost = MRComputeFairObjective(inputPoints, Arrays.asList(Fairclusters));
         long endFairObjective = System.currentTimeMillis();
+
+        //PRINT OBTAINED STATS 
+        //Standard
+        System.out.printf("objective function output with standard Lloyd's algorithm :%d", standardCost);
+        System.out.printf("time to compute standard KMeans: %d", (endStandardKMeans - startStandardKMeans)/1000);
+        System.out.printf("time to compute objective function with standard centroids: %d", (endStandardObjective - startStandardObjective)/1000);
+
+        //Fair
         System.out.printf("objective function output with fair Lloyd's algorithm :%d", fairCost);
         System.out.printf("time to compute fair KMeans: %d", (endFairKMeans - startFairKMeans)/1000);
         System.out.printf("time to compute objective function with fair centroids: %d", (endFairObjective - startFairObjective)/1000);
-
 
         // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
         // STANDARD OBJECTIVE COST

@@ -14,7 +14,7 @@ import scala.Tuple3;
 import java.util.*;
 
 
-public class Homework_1 {
+public class G08HW2 {
 
       public static double[] computeVectorX(double fixedA, double fixedB, double[] alpha, double[] beta, double[] ell, int K) {
         double gamma = 0.5;

@@ -10,6 +10,7 @@ import org.apache.spark.mllib.linalg.Vectors;
 
 import scala.Tuple2;
 import scala.Tuple3;
+import scala.collection.generic.BitOperations.Int;
 
 import java.util.*;
 
@@ -138,17 +139,20 @@ public class G08HW2 {
 
     private static Vector[] MRFairLloyd(JavaPairRDD<InputSet,Vector> UniversePointSet, int K, int M){
       //INFO: Initializes a set C of K centroids using kmeans||
-      List<Vector> initializer = new ArrayList<>();
-      JavaSparkContext sparkContext = new JavaSparkContext();
-      JavaRDD<Vector> rdd = sparkContext.parallelize(initializer);
-
-      Vector[] C= KMeans.train(rdd.rdd(), K, 0).clusterCenters(); 
+      Vector[] C = KMeans.train(UniversePointSet.values().rdd(), K, 0).clusterCenters();
 
       for(int i=0;i<M;i++)
       {
+        JavaPairRDD<Integer,Iterable<Tuple2<InputSet,Vector>>> partitions =
+        UniversePointSet
+          .mapToPair(pair -> {
+            int c_i = 0; //TODO: determine the nearest center
+
+            return new Tuple2<>(c_i,pair);
+        }).groupByKey();
+
       }
 
-      sparkContext.close();
       return C;
     }
 
@@ -217,6 +221,30 @@ public class G08HW2 {
             return new Tuple2<>(set, Vectors.dense(entries.stream().mapToDouble(Double::doubleValue).toArray()));
         }).repartition(L).cache();
 
+        JavaPairRDD<InputSet, Vector> inputPointsNoPartitions = sc.textFile(filename).mapToPair((line) -> {
+            ArrayList<Double> entries = new ArrayList<>();
+            InputSet set = InputSet.Unknown;
+            Iterator<String> tokens = Arrays.stream(line.split(",")).iterator();
+            while (tokens.hasNext()) {
+                String token = tokens.next();
+                if (tokens.hasNext()) {
+                    entries.add(Double.parseDouble(token));
+                } else {
+                    switch (token) {
+                        case "A":
+                            set = InputSet.SetA;
+                            break;
+                        case "B":
+                            set = InputSet.SetB;
+                            break;
+                        default:
+                            set = InputSet.Unknown;
+                    }
+                }
+            }
+            return new Tuple2<>(set, Vectors.dense(entries.stream().mapToDouble(Double::doubleValue).toArray()));
+        }).cache();
+
         // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
         // PRINT NUMBER OF POINTS
         // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
@@ -252,7 +280,7 @@ public class G08HW2 {
 
         // Computation of Fair Stats
         long startFairKMeans = System.currentTimeMillis();
-        Vector[] Fairclusters = MRFairLloyd(inputPoints, K, M);
+        Vector[] Fairclusters = MRFairLloyd(inputPointsNoPartitions, K, M);
         long endFairKMeans = System.currentTimeMillis();
         long startFairObjective = System.currentTimeMillis();
         double fairCost = MRComputeFairObjective(inputPoints, Arrays.asList(Fairclusters));

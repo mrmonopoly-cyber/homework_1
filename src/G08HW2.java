@@ -10,83 +10,84 @@ import org.apache.spark.mllib.linalg.Vectors;
 
 import scala.Tuple2;
 import scala.Tuple3;
-import scala.collection.generic.BitOperations.Int;
 
 import java.util.*;
 
 
 public class G08HW2 {
 
-      public static double[] computeVectorX(double fixedA, double fixedB, double[] alpha, double[] beta, double[] ell, int K) {
+    public static double[] computeVectorX(double fixedA, double fixedB, double[] alpha, double[] beta, double[] ell, int K) {
         double gamma = 0.5;
         double[] xDist = new double[K];
         double fA, fB;
         double power = 0.5;
         int T = 10;
-        for (int t=1; t<=T; t++){
+        for (int t = 1; t <= T; t++) {
             fA = fixedA;
             fB = fixedB;
-            power = power/2;
-            for (int i=0; i<K; i++) {
-                double temp = (1-gamma)*beta[i]*ell[i]/(gamma*alpha[i]+(1-gamma)*beta[i]);
-                xDist[i]=temp;
-                fA += alpha[i]*temp*temp;
-                temp=(ell[i]-temp);
-                fB += beta[i]*temp*temp;
+            power = power / 2;
+            for (int i = 0; i < K; i++) {
+                double temp = (1 - gamma) * beta[i] * ell[i] / (gamma * alpha[i] + (1 - gamma) * beta[i]);
+                xDist[i] = temp;
+                fA += alpha[i] * temp * temp;
+                temp = (ell[i] - temp);
+                fB += beta[i] * temp * temp;
             }
-            if (fA == fB) {break;}
-            gamma = (fA > fB) ? gamma+power : gamma-power;
+            if (fA == fB) {
+                break;
+            }
+            gamma = (fA > fB) ? gamma + power : gamma - power;
         }
         return xDist;
     }
 
     private static void MRPrintStatistics(JavaPairRDD<InputSet, Vector> universeSet, List<Vector> centerSet) {
-      List<Tuple2<Integer,Tuple2<Integer,Integer>>> centerInfoList = universeSet.mapPartitions((partitions) ->{
-        List<Tuple3<Integer,Integer,Integer>> partialSum = new ArrayList<>(0);
-        for(int i=0;i<centerSet.size();i++){
-          partialSum.add(new Tuple3<>(i,0,0));
-        }
-        partitions.forEachRemaining(tuple ->{
-          int bestCenter = 0;
-          double bestDist = Double.MAX_VALUE;
-          for(int i=0; i<centerSet.size();i++){
-            double dist = Vectors.sqdist(tuple._2,centerSet.get(i));
-            if ( dist < bestDist) {
-              bestCenter = i;
-              bestDist = dist;
+        List<Tuple2<Integer, Tuple2<Integer, Integer>>> centerInfoList = universeSet.mapPartitions((partitions) -> {
+            List<Tuple3<Integer, Integer, Integer>> partialSum = new ArrayList<>(0);
+            for (int i = 0; i < centerSet.size(); i++) {
+                partialSum.add(new Tuple3<>(i, 0, 0));
             }
-          }
-          Tuple3<Integer,Integer,Integer> old = partialSum.get(bestCenter);
-          if (tuple._1 == InputSet.SetA){
-            partialSum.set(bestCenter,new Tuple3<>(bestCenter, old._2()+1, old._3()));
-          }else{
-            partialSum.set(bestCenter,new Tuple3<>(bestCenter, old._2(), old._3()+1));
-          }
-        });
-        return partialSum.iterator();
-      }).groupBy(Tuple3::_1).mapToPair((partial) ->{
-        int totNa =0;
-        int totNb =0;
-        for (Tuple3<Integer,Integer,Integer> node: partial._2){
-          totNa += node._2();
-          totNb += node._3();
-        }
-        return new Tuple2<>(partial._1,new Tuple2<>(totNa,totNb));
-      }).sortByKey().collect();
+            partitions.forEachRemaining(tuple -> {
+                int bestCenter = 0;
+                double bestDist = Double.MAX_VALUE;
+                for (int i = 0; i < centerSet.size(); i++) {
+                    double dist = Vectors.sqdist(tuple._2, centerSet.get(i));
+                    if (dist < bestDist) {
+                        bestCenter = i;
+                        bestDist = dist;
+                    }
+                }
+                Tuple3<Integer, Integer, Integer> old = partialSum.get(bestCenter);
+                if (tuple._1 == InputSet.SetA) {
+                    partialSum.set(bestCenter, new Tuple3<>(bestCenter, old._2() + 1, old._3()));
+                } else {
+                    partialSum.set(bestCenter, new Tuple3<>(bestCenter, old._2(), old._3() + 1));
+                }
+            });
+            return partialSum.iterator();
+        }).groupBy(Tuple3::_1).mapToPair((partial) -> {
+            int totNa = 0;
+            int totNb = 0;
+            for (Tuple3<Integer, Integer, Integer> node : partial._2) {
+                totNa += node._2();
+                totNb += node._3();
+            }
+            return new Tuple2<>(partial._1, new Tuple2<>(totNa, totNb));
+        }).sortByKey().collect();
 
-      centerInfoList.forEach(center ->{
-        int center_index = center._1();
-        long nA = center._2()._1();
-        long nB = center._2()._2();
-        Vector centerPos = centerSet.get(center_index);
-        System.out.printf("i = %d, center = (%s), NA%d = %d, NB%d = %d\n",
-            center_index,
-            centerPos.toString(),
-            center_index,
-            nA,
-            center_index,
-            nB);
-      });
+        centerInfoList.forEach(center -> {
+            int center_index = center._1();
+            long nA = center._2()._1();
+            long nB = center._2()._2();
+            Vector centerPos = centerSet.get(center_index);
+            System.out.printf("i = %d, center = (%s), NA%d = %d, NB%d = %d\n",
+                    center_index,
+                    centerPos.toString(),
+                    center_index,
+                    nA,
+                    center_index,
+                    nB);
+        });
     }
 
     private static double MRComputeStandardObjective(JavaRDD<Vector> points, List<Vector> centroids) {
@@ -137,20 +138,49 @@ public class G08HW2 {
         return Math.max(objA, objB);
     }
 
+    private static Vector[] CentroidSelection(Vector[] stdCentrA, Vector[] stdCentrB, int k) {
+        double fixedA =0;
+        double fixedB =0;
+        double[] alpha = new double[k];
+        double[] beta = new double[k];
+        double[] ell = new double[k];
+
+        Vector[] c = new Vector[k];
+        double[] x = computeVectorX(fixedA,fixedB, alpha, beta, ell, k);
+        for(int i=0;i<k;i++) {
+        }
+        return c;
+    }
+
     private static Vector[] MRFairLloyd(JavaPairRDD<InputSet,Vector> UniversePointSet, int K, int M){
       //INFO: Initializes a set C of K centroids using kmeans||
       Vector[] C = KMeans.train(UniversePointSet.values().rdd(), K, 0).clusterCenters();
 
       for(int i=0;i<M;i++)
       {
-        JavaPairRDD<Integer,Iterable<Tuple2<InputSet,Vector>>> partitions =
-        UniversePointSet
-          .mapToPair(pair -> {
-            int c_i = 0; //TODO: determine the nearest center
+          Vector[] finalC = C;
+          Vector[] standardCentrA = new Vector[K];
+          Vector[] standardCentrB = new Vector[K];
 
-            return new Tuple2<>(c_i,pair);
-        }).groupByKey();
+          JavaPairRDD<Integer,Iterable<Tuple2<InputSet,Vector>>> partitions = UniversePointSet
+                  .mapToPair(pair -> {
+                      int c_i = 0;
+                      double dist = Double.MAX_VALUE;
 
+                      for(int j=0;j< K;j++) {
+                          double currDist= Vectors.sqdist(finalC[j], pair._2());
+                          if (currDist < dist){
+                              c_i = j;
+                              dist = currDist;
+                          }
+                      }
+
+                      return new Tuple2<>(c_i,pair);
+                  })
+                  .sortByKey()
+                  .groupByKey()
+                  .cache();
+          C = CentroidSelection(standardCentrA, standardCentrB, K);
       }
 
       return C;

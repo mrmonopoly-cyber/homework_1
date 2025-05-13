@@ -138,21 +138,53 @@ public class G08HW2 {
         return Math.max(objA, objB);
     }
 
-    private static Vector[] CentroidSelection(Vector[] stdCentrA, Vector[] stdCentrB, int k) {
-        double fixedA =0;
-        double fixedB =0;
+    private static double delta(JavaPairRDD<InputSet, Vector> wholeSet, Vector[] stdCenter){
+        return 0;
+    }
+
+    private static Vector[] CentroidSelection(JavaPairRDD<Integer,Iterable<Tuple2<InputSet,Vector>>> partitions ,int Asize, int Bsize, Vector[] stdCentrA, Vector[] stdCentrB, int k) {
         double[] alpha = new double[k];
         double[] beta = new double[k];
         double[] ell = new double[k];
+        double fixedA =0;
+        double fixedB =0;
 
         Vector[] c = new Vector[k];
         double[] x = computeVectorX(fixedA,fixedB, alpha, beta, ell, k);
         for(int i=0;i<k;i++) {
+            double[] stdCenterADigits= stdCentrA[i].toArray();
+            double[] stdCenterBDigits= stdCentrB[i].toArray();
+            double[] ciCoordinates = new double[stdCenterBDigits.length];
+            double stdCenterAReduction = (ell[i] - x[i]);
+            for(int j=0;j<stdCenterBDigits.length;j++) { //TODO: parallelize the computation through map reduce
+                ciCoordinates[j] = (stdCenterAReduction*stdCenterADigits[j]+x[i]*stdCenterBDigits[j])/ell[i];
+            }
+            c[i] = Vectors.dense(ciCoordinates);
         }
         return c;
     }
 
     private static Vector[] MRFairLloyd(JavaPairRDD<InputSet,Vector> UniversePointSet, int K, int M){
+        Tuple2<Integer, Integer> ElementCounter= UniversePointSet
+                .mapPartitions(partitions -> {
+                    List<Tuple2< Integer, Integer>> partialSum = new ArrayList<>(2);
+
+                    partialSum.set(0,new Tuple2<>(0,0));
+                    partialSum.set(1,new Tuple2<>(0,0));
+
+                    partitions.forEachRemaining( point ->{
+                        if (point._1 == InputSet.SetA) {
+                            Tuple2<Integer,Integer> updatedCount = new Tuple2<>(partialSum.get(0)._1 + 1,partialSum.get(1)._2);
+                            partialSum.set(0, updatedCount);
+                        } else {
+                            Tuple2<Integer,Integer> updatedCount = new Tuple2<>(partialSum.get(0)._1, partialSum.get(1)._2 +1);
+                            partialSum.set(1, updatedCount);
+                        }
+                    });
+
+                    return partialSum.iterator();
+                })
+                .reduce( (counter, partitions) -> new Tuple2<>(counter._1 + partitions._1, counter._2 + partitions._2));
       //INFO: Initializes a set C of K centroids using kmeans||
       Vector[] C = KMeans.train(UniversePointSet.values().rdd(), K, 0).clusterCenters();
 
@@ -180,7 +212,7 @@ public class G08HW2 {
                   .sortByKey()
                   .groupByKey()
                   .cache();
-          C = CentroidSelection(standardCentrA, standardCentrB, K);
+          C = CentroidSelection(partitions, ElementCounter._1 , ElementCounter._2 ,standardCentrA, standardCentrB, K);
       }
 
       return C;

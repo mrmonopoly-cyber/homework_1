@@ -7,9 +7,9 @@ import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.mllib.clustering.KMeans;
 import org.apache.spark.mllib.linalg.Vector;
 import org.apache.spark.mllib.linalg.Vectors;
-
 import scala.Tuple2;
 import scala.Tuple3;
+import scala.Tuple4;
 
 import java.util.*;
 
@@ -41,53 +41,94 @@ public class G08HW2 {
         return xDist;
     }
 
-    private static void MRPrintStatistics(JavaPairRDD<InputSet, Vector> universeSet, List<Vector> centerSet) {
-        List<Tuple2<Integer, Tuple2<Integer, Integer>>> centerInfoList = universeSet.mapPartitions((partitions) -> {
-            List<Tuple3<Integer, Integer, Integer>> partialSum = new ArrayList<>(0);
+    public static Metrics ComputeMetrics(JavaPairRDD<InputSet, Vector> universeSet, List<Vector> centerSet) {
+
+        // This steps produces for each partition a list of tuples (cluster_index, (n_a, sum_a, n_b, sum_b))
+        List<Tuple2<Integer, Tuple4<Integer, Vector, Integer, Vector>>> clusterMetrics = universeSet.mapPartitionsToPair(partition -> {
+            List<Tuple2<Integer, Tuple4<Integer, Vector, Integer, Vector>>> partialSum = new ArrayList<>(0);
+            // First add an entry for each cluster
             for (int i = 0; i < centerSet.size(); i++) {
-                partialSum.add(new Tuple3<>(i, 0, 0));
+                partialSum.add(
+                        new Tuple2<>(
+                                i,
+                                new Tuple4<>(
+                                        0,
+                                        Vectors.zeros(centerSet.get(0).size()),
+                                        0,
+                                        Vectors.zeros(centerSet.get(0).size())
+                                )
+                        )
+                );
             }
-            partitions.forEachRemaining(tuple -> {
-                int bestCenter = 0;
-                double bestDist = Double.MAX_VALUE;
+            // For every point in the partition compute the closest center, and its demographic,
+            // then update the counters accordingly
+            partition.forEachRemaining(point -> {
+                int center = 0;
+                double closest = Double.MAX_VALUE;
                 for (int i = 0; i < centerSet.size(); i++) {
-                    double dist = Vectors.sqdist(tuple._2, centerSet.get(i));
-                    if (dist < bestDist) {
-                        bestCenter = i;
-                        bestDist = dist;
+                    double dist = Vectors.sqdist(point._2, centerSet.get(i));
+                    if (dist < closest) {
+                        center = i;
+                        closest = dist;
                     }
                 }
-                Tuple3<Integer, Integer, Integer> old = partialSum.get(bestCenter);
-                if (tuple._1 == InputSet.SetA) {
-                    partialSum.set(bestCenter, new Tuple3<>(bestCenter, old._2() + 1, old._3()));
+                Tuple2<Integer, Tuple4<Integer, Vector, Integer, Vector>> old = partialSum.get(center);
+                if (point._1 == InputSet.SetA) {
+                    int newCount = old._2()._1() + 1;
+                    Vector newSum = ExtendedVectors.sum(old._2._2(), point._2);
+                    partialSum.set(center, new Tuple2<>(center, new Tuple4<>(newCount, newSum, old._2._3(), old._2._4())));
                 } else {
-                    partialSum.set(bestCenter, new Tuple3<>(bestCenter, old._2(), old._3() + 1));
+                    int newCount = old._2()._3() + 1;
+                    Vector newSum = ExtendedVectors.sum(old._2._4(), point._2);
+                    partialSum.set(center, new Tuple2<>(center, new Tuple4<>(old._2._1(), old._2._2(), newCount, newSum)));
                 }
             });
             return partialSum.iterator();
-        }).groupBy(Tuple3::_1).mapToPair((partial) -> {
-            int totNa = 0;
-            int totNb = 0;
-            for (Tuple3<Integer, Integer, Integer> node : partial._2) {
-                totNa += node._2();
-                totNb += node._3();
-            }
-            return new Tuple2<>(partial._1, new Tuple2<>(totNa, totNb));
-        }).sortByKey().collect();
+            // Here group by cluster index every partial count and aggregate counters
+        }).reduceByKey((p1, p2) ->
+                new Tuple4<>(
+                        p1._1() + p2._1(),
+                        ExtendedVectors.sum(p1._2(), p2._2()),
+                        p1._3() + p2._3(),
+                        ExtendedVectors.sum(p1._4(), p2._4())
+                )
+        ).collect();
 
-        centerInfoList.forEach(center -> {
-            int center_index = center._1();
-            long nA = center._2()._1();
-            long nB = center._2()._2();
-            Vector centerPos = centerSet.get(center_index);
-            System.out.printf("i = %d, center = (%s), NA%d = %d, NB%d = %d\n",
-                    center_index,
-                    centerPos.toString(),
-                    center_index,
-                    nA,
-                    center_index,
-                    nB);
-        });
+        Metrics metrics = new Metrics(centerSet.size());
+        for (Tuple2<Integer, Tuple4<Integer, Vector, Integer, Vector>> cluster : clusterMetrics) {
+            metrics.append(cluster);
+        }
+        metrics.compute();
+        return metrics;
+    }
+
+    // Computes the "contributions" for the fair k-means (aka. the "capital Delta" factors) = sum over all points in the group of their quadratic distance to the centroid of their group, for both A and B
+    private static Tuple2<Double, Double> ComputeContributions(JavaPairRDD<InputSet, Vector> points, List<Vector> centroidsA, List<Vector> centroidsB) {
+        List<Tuple2<InputSet, Double>> costs = points.mapPartitionsToPair(partition -> {
+            double costA = 0.0;
+            double costB = 0.0;
+            while (partition.hasNext()) {
+                Tuple2<InputSet, Vector> point = partition.next();
+                double cost = Double.POSITIVE_INFINITY;
+                List<Vector> centroids = (point._1 == InputSet.SetA) ? centroidsA : centroidsB;
+                for (Vector center : centroids) {
+                    double distance = Vectors.sqdist(point._2, center);
+                    cost = Math.min(distance, cost);
+                }
+                if (point._1 == InputSet.SetA) {
+                    costA += cost;
+                } else {
+                    costB += cost;
+                }
+            }
+
+            List<Tuple2<InputSet, Double>> counts = new ArrayList<>();
+            counts.add(new Tuple2<>(InputSet.SetA, costA));
+            counts.add(new Tuple2<>(InputSet.SetB, costB));
+            return counts.iterator();
+        }).reduceByKey((c1, c2) -> c1 + c2).sortByKey().collect();
+
+        return new Tuple2<>(costs.get(0)._2, costs.get(1)._2);
     }
 
     private static double MRComputeStandardObjective(JavaRDD<Vector> points, List<Vector> centroids) {
@@ -139,51 +180,50 @@ public class G08HW2 {
     }
 
     private static Vector[] CentroidSelection(Vector[] stdCentrA, Vector[] stdCentrB, int k) {
-        double fixedA =0;
-        double fixedB =0;
+        double fixedA = 0;
+        double fixedB = 0;
         double[] alpha = new double[k];
         double[] beta = new double[k];
         double[] ell = new double[k];
 
         Vector[] c = new Vector[k];
-        double[] x = computeVectorX(fixedA,fixedB, alpha, beta, ell, k);
-        for(int i=0;i<k;i++) {
+        double[] x = computeVectorX(fixedA, fixedB, alpha, beta, ell, k);
+        for (int i = 0; i < k; i++) {
         }
         return c;
     }
 
-    private static Vector[] MRFairLloyd(JavaPairRDD<InputSet,Vector> UniversePointSet, int K, int M){
-      //INFO: Initializes a set C of K centroids using kmeans||
-      Vector[] C = KMeans.train(UniversePointSet.values().rdd(), K, 0).clusterCenters();
+    private static Vector[] MRFairLloyd(JavaPairRDD<InputSet, Vector> UniversePointSet, int K, int M) {
+        //INFO: Initializes a set C of K centroids using kmeans||
+        Vector[] C = KMeans.train(UniversePointSet.values().rdd(), K, 0).clusterCenters();
 
-      for(int i=0;i<M;i++)
-      {
-          Vector[] finalC = C;
-          Vector[] standardCentrA = new Vector[K];
-          Vector[] standardCentrB = new Vector[K];
+        for (int i = 0; i < M; i++) {
+            Vector[] finalC = C;
+            Vector[] standardCentrA = new Vector[K];
+            Vector[] standardCentrB = new Vector[K];
 
-          JavaPairRDD<Integer,Iterable<Tuple2<InputSet,Vector>>> partitions = UniversePointSet
-                  .mapToPair(pair -> {
-                      int c_i = 0;
-                      double dist = Double.MAX_VALUE;
+            JavaPairRDD<Integer, Iterable<Tuple2<InputSet, Vector>>> partitions = UniversePointSet
+                    .mapToPair(pair -> {
+                        int c_i = 0;
+                        double dist = Double.MAX_VALUE;
 
-                      for(int j=0;j< K;j++) {
-                          double currDist= Vectors.sqdist(finalC[j], pair._2());
-                          if (currDist < dist){
-                              c_i = j;
-                              dist = currDist;
-                          }
-                      }
+                        for (int j = 0; j < K; j++) {
+                            double currDist = Vectors.sqdist(finalC[j], pair._2());
+                            if (currDist < dist) {
+                                c_i = j;
+                                dist = currDist;
+                            }
+                        }
 
-                      return new Tuple2<>(c_i,pair);
-                  })
-                  .sortByKey()
-                  .groupByKey()
-                  .cache();
-          C = CentroidSelection(standardCentrA, standardCentrB, K);
-      }
+                        return new Tuple2<>(c_i, pair);
+                    })
+                    .sortByKey()
+                    .groupByKey()
+                    .cache();
+            C = CentroidSelection(standardCentrA, standardCentrB, K);
+        }
 
-      return C;
+        return C;
     }
 
     public static void main(String[] args) {
@@ -316,16 +356,16 @@ public class G08HW2 {
         double fairCost = MRComputeFairObjective(inputPoints, Arrays.asList(Fairclusters));
         long endFairObjective = System.currentTimeMillis();
 
-        //PRINT OBTAINED STATS 
+        //PRINT OBTAINED STATS
         //Standard
         System.out.printf("objective function output with standard Lloyd's algorithm :%d", standardCost);
-        System.out.printf("time to compute standard KMeans: %d", (endStandardKMeans - startStandardKMeans)/1000);
-        System.out.printf("time to compute objective function with standard centroids: %d", (endStandardObjective - startStandardObjective)/1000);
+        System.out.printf("time to compute standard KMeans: %d", (endStandardKMeans - startStandardKMeans) / 1000);
+        System.out.printf("time to compute objective function with standard centroids: %d", (endStandardObjective - startStandardObjective) / 1000);
 
         //Fair
         System.out.printf("objective function output with fair Lloyd's algorithm :%d", fairCost);
-        System.out.printf("time to compute fair KMeans: %d", (endFairKMeans - startFairKMeans)/1000);
-        System.out.printf("time to compute objective function with fair centroids: %d", (endFairObjective - startFairObjective)/1000);
+        System.out.printf("time to compute fair KMeans: %d", (endFairKMeans - startFairKMeans) / 1000);
+        System.out.printf("time to compute objective function with fair centroids: %d", (endFairObjective - startFairObjective) / 1000);
 
         // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
         // STANDARD OBJECTIVE COST
@@ -339,6 +379,81 @@ public class G08HW2 {
 
     enum InputSet {
         SetA, SetB, Unknown
+    }
+
+    private static class ExtendedVectors {
+        private static Vector sum(Vector v1, Vector v2) {
+            double[] val1 = v1.toArray();
+            double[] val2 = v2.toArray();
+            double[] res = new double[val1.length];
+            for (int i = 0; i < val1.length; i++) {
+                res[i] += val1[i] + val2[i];
+            }
+            return Vectors.dense(res);
+        }
+
+        private static Vector sub(Vector v1, Vector v2) {
+            return sum(v1, scale(v2, -1.0));
+        }
+
+        private static Vector scale(Vector v, double a) {
+            return Vectors.dense(Arrays.stream(v.toArray()).map(x -> a * x).toArray());
+        }
+    }
+
+    /*
+     For all cluster compute
+     - Ratio between the number of A elements in the cluster and the total number of elements in A
+     - Ratio between the number of B elements in the cluster and the total number of elements in B
+     - Average between all the vectors in the cluster in A
+     - Average between all the vectors in the cluster in B
+     - Euclidean distance between the two averages
+     */
+    static class Metrics {
+        double[] alpha;
+        double[] beta;
+        Vector[] mA;
+        Vector[] mB;
+        double[] l;
+
+        int nA;
+        int nB;
+
+        public Metrics(int k) {
+            this.alpha = new double[k];
+            this.beta = new double[k];
+            this.mA = new Vector[k];
+            this.mB = new Vector[k];
+            this.l = new double[k];
+
+            nA = 0;
+            nB = 0;
+        }
+
+        public void append(Tuple2<Integer, Tuple4<Integer, Vector, Integer, Vector>> clusterMetric) {
+            // Recall that tuple 4 === (count_a, sum_a, count_b, sum_b)
+            alpha[clusterMetric._1] = clusterMetric._2._1();
+            beta[clusterMetric._1] = clusterMetric._2._3();
+
+            mA[clusterMetric._1] = ExtendedVectors.scale(clusterMetric._2._2(), 1.0 / clusterMetric._2._1());
+            mB[clusterMetric._1] = ExtendedVectors.scale(clusterMetric._2._4(), 1.0 / clusterMetric._2._3());
+
+            l[clusterMetric._1] = Vectors.norm(ExtendedVectors.sub(mA[clusterMetric._1], mB[clusterMetric._1]), 2);
+
+            nA += clusterMetric._2._1();
+            nB += clusterMetric._2._3();
+
+        }
+
+        public void compute() {
+            for (int i = 0; i < alpha.length; i++) {
+                alpha[i] /= nA;
+            }
+            for (int i = 0; i < beta.length; i++) {
+                beta[i] /= nB;
+            }
+        }
+
     }
 
 }

@@ -135,7 +135,7 @@ public class G08HW2 {
             counts.add(new Tuple2<>(InputSet.SetA, costA));
             counts.add(new Tuple2<>(InputSet.SetB, costB));
             return counts.iterator();
-        }).reduceByKey((c1, c2) -> c1 + c2).sortByKey().collect();
+        }).reduceByKey(Double::sum).sortByKey().collect();
 
         return new Tuple2<>(costs.get(0)._2, costs.get(1)._2);
     }
@@ -188,76 +188,37 @@ public class G08HW2 {
         return Math.max(objA, objB);
     }
 
-    private static Vector[] CentroidSelection(Vector[] stdCentrA, Vector[] stdCentrB, int k) {
-        double fixedA = 0;
-        double fixedB = 0;
-        double[] alpha = new double[k];
-        double[] beta = new double[k];
-        double[] ell = new double[k];
+    private static List<Vector> CentroidSelection(JavaPairRDD<InputSet,Vector> points, List<Vector> centerSet, int k) {
+      Metrics metrics = ComputeMetrics(points, centerSet);
+        Tuple2<Double,Double> deltaAB = ComputeContributions(points, Arrays.asList(metrics.mA), Arrays.asList(metrics.mB));
+        double fixedA = deltaAB._1()/metrics.nA;
+        double fixedB = deltaAB._1()/metrics.nB;
 
         Vector[] c = new Vector[k];
-        double[] x = computeVectorX(fixedA, fixedB, alpha, beta, ell, k);
+        double[] x = computeVectorX(fixedA, fixedB, metrics.alpha, metrics.beta, metrics.l, k);
         for (int i = 0; i < k; i++) {
-            double[] stdCenterADigits = stdCentrA[i].toArray();
-            double[] stdCenterBDigits = stdCentrB[i].toArray();
+            double[] stdCenterADigits = metrics.mA[i].toArray();
+            double[] stdCenterBDigits = metrics.mB[i].toArray();
             double[] ciCoordinates = new double[stdCenterBDigits.length];
-            double stdCenterAReduction = (ell[i] - x[i]);
-            for (int j = 0; j < stdCenterBDigits.length; j++) { //TODO: parallelize the computation through map reduce
-                ciCoordinates[j] = (stdCenterAReduction * stdCenterADigits[j] + x[i] * stdCenterBDigits[j]) / ell[i];
+            double stdCenterAReduction = (metrics.l[i] - x[i]);
+            if(metrics.l[i]==0){
+                c[i] = metrics.mA[i];
+            }else{
+                for (int j = 0; j < stdCenterBDigits.length; j++) {
+                  ciCoordinates[j] = (stdCenterAReduction * stdCenterADigits[j] + x[i] * stdCenterBDigits[j]) / metrics.l[i];
+                }
+                c[i] =  Vectors.dense(ciCoordinates);
             }
-            c[i] = Vectors.dense(ciCoordinates);
         }
-        return c;
+        return Arrays.asList(c);
     }
 
-    private static Vector[] MRFairLloyd(JavaPairRDD<InputSet, Vector> UniversePointSet, int K, int M) {
-        Tuple2<Integer, Integer> ElementCounter = UniversePointSet
-                .mapPartitions(partitions -> {
-                    List<Tuple2<Integer, Integer>> partialSum = new ArrayList<>(2);
-
-                    partialSum.set(0, new Tuple2<>(0, 0));
-                    partialSum.set(1, new Tuple2<>(0, 0));
-
-                    partitions.forEachRemaining(point -> {
-                        if (point._1 == InputSet.SetA) {
-                            Tuple2<Integer, Integer> updatedCount = new Tuple2<>(partialSum.get(0)._1 + 1, partialSum.get(1)._2);
-                            partialSum.set(0, updatedCount);
-                        } else {
-                            Tuple2<Integer, Integer> updatedCount = new Tuple2<>(partialSum.get(0)._1, partialSum.get(1)._2 + 1);
-                            partialSum.set(1, updatedCount);
-                        }
-                    });
-
-                    return partialSum.iterator();
-                })
-                .reduce((counter, partitions) -> new Tuple2<>(counter._1 + partitions._1, counter._2 + partitions._2));
+    private static List<Vector> MRFairLloyd(JavaPairRDD<InputSet, Vector> UniversePointSet, int K, int M) {
         //INFO: Initializes a set C of K centroids using kmeans||
-        Vector[] C = KMeans.train(UniversePointSet.values().rdd(), K, 0).clusterCenters();
+        List<Vector> C = Arrays.asList(KMeans.train(UniversePointSet.values().rdd(), K, 0).clusterCenters());
 
         for (int i = 0; i < M; i++) {
-            Vector[] finalC = C;
-            Vector[] standardCentrA = new Vector[K];
-            Vector[] standardCentrB = new Vector[K];
-
-            JavaPairRDD<Integer, Iterable<Tuple2<InputSet, Vector>>> partitions = UniversePointSet
-                    .mapToPair(pair -> {
-                        int c_i = 0;
-                        double dist = Double.MAX_VALUE;
-
-                        for (int j = 0; j < K; j++) {
-                            double currDist = Vectors.sqdist(finalC[j], pair._2());
-                            if (currDist < dist) {
-                                c_i = j;
-                                dist = currDist;
-                            }
-                        }
-
-                        return new Tuple2<>(c_i, pair);
-                    })
-                    .sortByKey()
-                    .groupByKey()
-                    .cache();
-//            C = CentroidSelection(partitions, ElementCounter._1, ElementCounter._2, standardCentrA, standardCentrB, K);
+           C = CentroidSelection(UniversePointSet, C, K);
         }
 
         return C;
@@ -379,30 +340,39 @@ public class G08HW2 {
 
         // Computation of Standard Stats
         long startStandardKMeans = System.currentTimeMillis();
-        List<Vector> Standardclusters = Arrays.asList(KMeans.train(strippedInputPoints.rdd(), K, M).clusterCenters());
+        List<Vector> standardClusters = Arrays.asList(KMeans.train(strippedInputPoints.rdd(), K, M).clusterCenters());
         long endStandardKMeans = System.currentTimeMillis();
         long startStandardObjective = System.currentTimeMillis();
-        double standardCost = MRComputeFairObjective(inputPoints, Standardclusters);
+        double standardCost = MRComputeFairObjective(inputPoints, standardClusters);
         long endStandardObjective = System.currentTimeMillis();
 
         // Computation of Fair Stats
         long startFairKMeans = System.currentTimeMillis();
-        Vector[] Fairclusters = MRFairLloyd(inputPointsNoPartitions, K, M);
+        List<Vector> fairClusters = MRFairLloyd(inputPointsNoPartitions, K, M);
         long endFairKMeans = System.currentTimeMillis();
         long startFairObjective = System.currentTimeMillis();
-        double fairCost = MRComputeFairObjective(inputPoints, Arrays.asList(Fairclusters));
+        double fairCost = MRComputeFairObjective(inputPointsNoPartitions, fairClusters);
         long endFairObjective = System.currentTimeMillis();
 
         //PRINT OBTAINED STATS
-        //Standard
-        System.out.printf("objective function output with standard Lloyd's algorithm :%d", standardCost);
-        System.out.printf("time to compute standard KMeans: %d", (endStandardKMeans - startStandardKMeans) / 1000);
-        System.out.printf("time to compute objective function with standard centroids: %d", (endStandardObjective - startStandardObjective) / 1000);
+        // Fair Objective with Standard Centers = 82.7281
+        // Fair Objective with Fair Centers = 25.1811
+        // Time to compute standard centers = 2469 ms
+        // Time to compute fair centers = 4877 ms
+        // Time to compute objective with standard centers = 125 ms
+        // Time to compute objective with fair centers = 124 ms
 
-        //Fair
-        System.out.printf("objective function output with fair Lloyd's algorithm :%d", fairCost);
-        System.out.printf("time to compute fair KMeans: %d", (endFairKMeans - startFairKMeans) / 1000);
-        System.out.printf("time to compute objective function with fair centroids: %d", (endFairObjective - startFairObjective) / 1000);
+        //computations
+        System.out.printf("Fair Objective with Standard Centers =%.2f\n", standardCost);
+        System.out.printf("Fair Objective with Fair Centers =%.2f\n", fairCost);
+
+        //time centers
+        System.out.printf("Time to compute standard centers = %d ms\n", (endStandardKMeans - startStandardKMeans));
+        System.out.printf("Time to compute fair centers = %d ms\n", (endFairKMeans - startFairKMeans));
+
+        //time objective 
+        System.out.printf("Time to compute objective with standard centers = %d ms\n", (endStandardObjective - startStandardObjective));
+        System.out.printf("Time to compute objective with fair centers = %d ms\n", (endFairObjective - startFairObjective));
 
         // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
         // STANDARD OBJECTIVE COST

@@ -188,13 +188,12 @@ public class G08HW2 {
         return Math.max(objA, objB);
     }
 
-    private static List<Vector> CentroidSelection(JavaPairRDD<InputSet,Vector> points, List<Vector> centerSet, int k) {
+    private static void CentroidSelection(JavaPairRDD<InputSet,Vector> points, List<Vector> centerSet, int k) {
       Metrics metrics = ComputeMetrics(points, centerSet);
         Tuple2<Double,Double> deltaAB = ComputeContributions(points, Arrays.asList(metrics.mA), Arrays.asList(metrics.mB));
         double fixedA = deltaAB._1()/metrics.nA;
         double fixedB = deltaAB._1()/metrics.nB;
 
-        Vector[] c = new Vector[k];
         double[] x = computeVectorX(fixedA, fixedB, metrics.alpha, metrics.beta, metrics.l, k);
         for (int i = 0; i < k; i++) {
             double[] stdCenterADigits = metrics.mA[i].toArray();
@@ -202,15 +201,14 @@ public class G08HW2 {
             double[] ciCoordinates = new double[stdCenterBDigits.length];
             double stdCenterAReduction = (metrics.l[i] - x[i]);
             if(metrics.l[i]==0){
-                c[i] = metrics.mA[i];
+                centerSet.set(i,metrics.mA[i]);
             }else{
                 for (int j = 0; j < stdCenterBDigits.length; j++) {
                   ciCoordinates[j] = (stdCenterAReduction * stdCenterADigits[j] + x[i] * stdCenterBDigits[j]) / metrics.l[i];
                 }
-                c[i] =  Vectors.dense(ciCoordinates);
+                centerSet.set(i,Vectors.dense(ciCoordinates));
             }
         }
-        return Arrays.asList(c);
     }
 
     private static List<Vector> MRFairLloyd(JavaPairRDD<InputSet, Vector> UniversePointSet, int K, int M) {
@@ -218,7 +216,7 @@ public class G08HW2 {
         List<Vector> C = Arrays.asList(KMeans.train(UniversePointSet.values().rdd(), K, 0).clusterCenters());
 
         for (int i = 0; i < M; i++) {
-           C = CentroidSelection(UniversePointSet, C, K);
+           CentroidSelection(UniversePointSet, C, K);
         }
 
         return C;

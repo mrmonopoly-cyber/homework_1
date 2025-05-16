@@ -471,8 +471,23 @@ public class G08HW2 {
             alpha[clusterMetric._1] = clusterMetric._2._1();
             beta[clusterMetric._1] = clusterMetric._2._3();
 
-            mA[clusterMetric._1] = ExtendedVectors.scale(clusterMetric._2._2(), 1.0 / clusterMetric._2._1());
-            mB[clusterMetric._1] = ExtendedVectors.scale(clusterMetric._2._4(), 1.0 / clusterMetric._2._3());
+            // Scale sumA if countA is non-zero
+            if (clusterMetric._2._1() != 0) {
+                mA[clusterMetric._1] = ExtendedVectors.scale(clusterMetric._2._2(), 1.0 / clusterMetric._2._1());
+            }
+            // Scale sumB if countB is non-zero
+            if (clusterMetric._2._3() != 0) {
+                mB[clusterMetric._1] = ExtendedVectors.scale(clusterMetric._2._4(), 1.0 / clusterMetric._2._3());
+            }
+
+            // If no A points in cluster, then use B centroid
+            if (clusterMetric._2._1() == 0){
+                mA[clusterMetric._1] = mB[clusterMetric._1];
+            }
+            // If no B points in cluster, then use A centroid
+            if (clusterMetric._2._3() == 0) {
+                mB[clusterMetric._1] = mA[clusterMetric._1];
+            }
 
             l[clusterMetric._1] = Vectors.norm(ExtendedVectors.sub(mA[clusterMetric._1], mB[clusterMetric._1]), 2);
 
@@ -482,11 +497,15 @@ public class G08HW2 {
         }
 
         public void compute() {
-            for (int i = 0; i < alpha.length; i++) {
-                alpha[i] /= nA;
+            if (nA != 0) {
+                for (int i = 0; i < alpha.length; i++) {
+                    alpha[i] /= nA;
+                }
             }
-            for (int i = 0; i < beta.length; i++) {
-                beta[i] /= nB;
+            if (nB != 0) {
+                for (int i = 0; i < beta.length; i++) {
+                    beta[i] /= nB;
+                }
             }
         }
 

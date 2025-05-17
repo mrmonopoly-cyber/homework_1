@@ -60,7 +60,7 @@ public class G08GEN {
 
         public RandomPoint(double scale, double xOffset, double yOffset, double pA) {
             double angle = 2 * Math.PI * Math.random();
-            double mod = scale * Math.random();
+            double mod = scale * Math.sqrt(Math.random());
             double x = mod * Math.cos(angle) + xOffset;
             double y = mod * Math.sin(angle) + yOffset;
             vector = Vectors.dense(new double[]{x, y});

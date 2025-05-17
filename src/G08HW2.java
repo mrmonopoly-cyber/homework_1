@@ -192,7 +192,7 @@ public class G08HW2 {
       Metrics metrics = ComputeMetrics(points, centerSet);
         Tuple2<Double,Double> deltaAB = ComputeContributions(points, Arrays.asList(metrics.mA), Arrays.asList(metrics.mB));
         double fixedA = deltaAB._1()/metrics.nA;
-        double fixedB = deltaAB._1()/metrics.nB;
+        double fixedB = deltaAB._2()/metrics.nB;
 
         double[] x = computeVectorX(fixedA, fixedB, metrics.alpha, metrics.beta, metrics.l, k);
         for (int i = 0; i < k; i++) {
@@ -212,7 +212,7 @@ public class G08HW2 {
     }
 
     private static List<Vector> MRFairLloyd(JavaPairRDD<InputSet, Vector> UniversePointSet, int K, int M) {
-        //INFO: Initializes a set C of K centroids using kmeans||
+        //INFO: Initializes a set C of K centroids using k means||
         List<Vector> C = Arrays.asList(KMeans.train(UniversePointSet.values().rdd(), K, 0).clusterCenters());
 
         for (int i = 0; i < M; i++) {
@@ -244,25 +244,25 @@ public class G08HW2 {
         Logger.getLogger("org.spark-project").setLevel(Level.ERROR);
         Logger.getLogger("org").setLevel(Level.OFF);
         Logger.getLogger("akka").setLevel(Level.OFF);
-        SparkConf conf = new SparkConf(true).setAppName("Homework1");
+        SparkConf conf = new SparkConf(true).setAppName("G08HW2");
         int K;
         int M;
         JavaSparkContext sc = new JavaSparkContext(conf);
         sc.setLogLevel("ERROR");
 
-        // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-        // INPUT READING
-        // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+            // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+            // INPUT READING
+            // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 
-        // Read number of partitions and filename
-        String filename = args[0];
-        int L = Integer.parseInt(args[1]);
-        K = Integer.parseInt(args[2]);
-        M = Integer.parseInt(args[3]);
+            // Read number of partitions and filename
+            String filename = args[0];
+            int L = Integer.parseInt(args[1]);
+            K = Integer.parseInt(args[2]);
+            M = Integer.parseInt(args[3]);
 
-        System.out.printf("Input file = %s, L = %d, K = %d, M = %d\n", filename, L, K, M);
+            System.out.printf("Input file = %s, L = %d, K = %d, M = %d\n", filename, L, K, M);
 
-        // Read input file, parse content and subdivide it into L random partitions
+            // Read input file, parse content and subdivide it into L random partitions
         JavaPairRDD<InputSet, Vector> inputPoints = sc.textFile(filename).mapToPair((line) -> {
             ArrayList<Double> entries = new ArrayList<>();
             InputSet set = InputSet.Unknown;
@@ -279,37 +279,20 @@ public class G08HW2 {
                         case "B":
                             set = InputSet.SetB;
                             break;
-                        default:
-                            set = InputSet.Unknown;
                     }
                 }
             }
             return new Tuple2<>(set, Vectors.dense(entries.stream().mapToDouble(Double::doubleValue).toArray()));
         }).repartition(L).cache();
 
-        JavaPairRDD<InputSet, Vector> inputPointsNoPartitions = sc.textFile(filename).mapToPair((line) -> {
-            ArrayList<Double> entries = new ArrayList<>();
-            InputSet set = InputSet.Unknown;
-            Iterator<String> tokens = Arrays.stream(line.split(",")).iterator();
-            while (tokens.hasNext()) {
-                String token = tokens.next();
-                if (tokens.hasNext()) {
-                    entries.add(Double.parseDouble(token));
-                } else {
-                    switch (token) {
-                        case "A":
-                            set = InputSet.SetA;
-                            break;
-                        case "B":
-                            set = InputSet.SetB;
-                            break;
-                        default:
-                            set = InputSet.Unknown;
-                    }
-                }
+        // Strip class information from original dataset
+        JavaRDD<Vector> strippedInputPoints = inputPoints.mapPartitions((points) -> {
+            ArrayList<Vector> strippedPoints = new ArrayList<>();
+            while (points.hasNext()) {
+                strippedPoints.add(points.next()._2);
             }
-            return new Tuple2<>(set, Vectors.dense(entries.stream().mapToDouble(Double::doubleValue).toArray()));
-        }).cache();
+            return strippedPoints.iterator();
+        }, true).cache();
 
         // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
         // PRINT NUMBER OF POINTS
@@ -327,14 +310,6 @@ public class G08HW2 {
         // K-MEANS CLUSTERING
         // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 
-        // Strip class information from original dataset
-        JavaRDD<Vector> strippedInputPoints = inputPoints.mapPartitions((points) -> {
-            ArrayList<Vector> strippedPoints = new ArrayList<>();
-            while (points.hasNext()) {
-                strippedPoints.add(points.next()._2);
-            }
-            return strippedPoints.iterator();
-        }, true).cache();
 
         // Computation of Standard Stats
         long startStandardKMeans = System.currentTimeMillis();
@@ -346,23 +321,17 @@ public class G08HW2 {
 
         // Computation of Fair Stats
         long startFairKMeans = System.currentTimeMillis();
-        List<Vector> fairClusters = MRFairLloyd(inputPointsNoPartitions, K, M);
+        List<Vector> fairClusters = MRFairLloyd(inputPoints, K, M);
         long endFairKMeans = System.currentTimeMillis();
         long startFairObjective = System.currentTimeMillis();
-        double fairCost = MRComputeFairObjective(inputPointsNoPartitions, fairClusters);
+        double fairCost = MRComputeFairObjective(inputPoints, fairClusters);
         long endFairObjective = System.currentTimeMillis();
 
         //PRINT OBTAINED STATS
-        // Fair Objective with Standard Centers = 82.7281
-        // Fair Objective with Fair Centers = 25.1811
-        // Time to compute standard centers = 2469 ms
-        // Time to compute fair centers = 4877 ms
-        // Time to compute objective with standard centers = 125 ms
-        // Time to compute objective with fair centers = 124 ms
 
         //computations
-        System.out.printf("Fair Objective with Standard Centers =%.2f\n", standardCost);
-        System.out.printf("Fair Objective with Fair Centers =%.2f\n", fairCost);
+        System.out.printf("Fair Objective with Standard Centers = %.2f\n", standardCost);
+        System.out.printf("Fair Objective with Fair Centers = %.2f\n", fairCost);
 
         //time centers
         System.out.printf("Time to compute standard centers = %d ms\n", (endStandardKMeans - startStandardKMeans));
@@ -372,12 +341,9 @@ public class G08HW2 {
         System.out.printf("Time to compute objective with standard centers = %d ms\n", (endStandardObjective - startStandardObjective));
         System.out.printf("Time to compute objective with fair centers = %d ms\n", (endFairObjective - startFairObjective));
 
-        // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-        // STANDARD OBJECTIVE COST
-        // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-        // double standard_cost = MRComputeStandardObjective(inputPoints.map(point -> point._2), Standardclusters);
-        // System.out.printf("Delta(U, C) = %f\n", standard_cost);
-        // System.out.printf("Phi(A, B, C) = %f\n", standardCost);
+        // Print centers REMOVE BEFORE SUBMISSION
+//        System.out.println(standardClusters);
+//        System.out.println(fairClusters);
 
     }
 

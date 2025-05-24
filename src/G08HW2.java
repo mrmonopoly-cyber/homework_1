@@ -188,11 +188,11 @@ public class G08HW2 {
         return Math.max(objA, objB);
     }
 
-    private static void CentroidSelection(JavaPairRDD<InputSet,Vector> points, List<Vector> centerSet, int k) {
-      Metrics metrics = ComputeMetrics(points, centerSet);
-        Tuple2<Double,Double> deltaAB = ComputeContributions(points, Arrays.asList(metrics.mA), Arrays.asList(metrics.mB));
-        double fixedA = deltaAB._1()/metrics.nA;
-        double fixedB = deltaAB._2()/metrics.nB;
+    private static void CentroidSelection(JavaPairRDD<InputSet, Vector> points, List<Vector> centerSet, int k) {
+        Metrics metrics = ComputeMetrics(points, centerSet);
+        Tuple2<Double, Double> deltaAB = ComputeContributions(points, Arrays.asList(metrics.mA), Arrays.asList(metrics.mB));
+        double fixedA = deltaAB._1() / metrics.nA;
+        double fixedB = deltaAB._2() / metrics.nB;
 
         double[] x = computeVectorX(fixedA, fixedB, metrics.alpha, metrics.beta, metrics.l, k);
         for (int i = 0; i < k; i++) {
@@ -200,13 +200,13 @@ public class G08HW2 {
             double[] stdCenterBDigits = metrics.mB[i].toArray();
             double[] ciCoordinates = new double[stdCenterBDigits.length];
             double stdCenterAReduction = (metrics.l[i] - x[i]);
-            if(metrics.l[i]==0){
-                centerSet.set(i,metrics.mA[i]);
-            }else{
+            if (metrics.l[i] == 0) {
+                centerSet.set(i, metrics.mA[i]);
+            } else {
                 for (int j = 0; j < stdCenterBDigits.length; j++) {
-                  ciCoordinates[j] = (stdCenterAReduction * stdCenterADigits[j] + x[i] * stdCenterBDigits[j]) / metrics.l[i];
+                    ciCoordinates[j] = (stdCenterAReduction * stdCenterADigits[j] + x[i] * stdCenterBDigits[j]) / metrics.l[i];
                 }
-                centerSet.set(i,Vectors.dense(ciCoordinates));
+                centerSet.set(i, Vectors.dense(ciCoordinates));
             }
         }
     }
@@ -216,7 +216,7 @@ public class G08HW2 {
         List<Vector> C = Arrays.asList(KMeans.train(UniversePointSet.values().rdd(), K, 0).clusterCenters());
 
         for (int i = 0; i < M; i++) {
-           CentroidSelection(UniversePointSet, C, K);
+            CentroidSelection(UniversePointSet, C, K);
         }
 
         return C;
@@ -250,19 +250,19 @@ public class G08HW2 {
         JavaSparkContext sc = new JavaSparkContext(conf);
         sc.setLogLevel("ERROR");
 
-            // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-            // INPUT READING
-            // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+        // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+        // INPUT READING
+        // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 
-            // Read number of partitions and filename
-            String filename = args[0];
-            int L = Integer.parseInt(args[1]);
-            K = Integer.parseInt(args[2]);
-            M = Integer.parseInt(args[3]);
+        // Read number of partitions and filename
+        String filename = args[0];
+        int L = Integer.parseInt(args[1]);
+        K = Integer.parseInt(args[2]);
+        M = Integer.parseInt(args[3]);
 
-            System.out.printf("Input file = %s, L = %d, K = %d, M = %d\n", filename, L, K, M);
+        System.out.printf("Input file = %s, L = %d, K = %d, M = %d\n", filename, L, K, M);
 
-            // Read input file, parse content and subdivide it into L random partitions
+        // Read input file, parse content and subdivide it into L random partitions
         JavaPairRDD<InputSet, Vector> inputPoints = sc.textFile(filename).mapToPair((line) -> {
             ArrayList<Double> entries = new ArrayList<>();
             InputSet set = InputSet.Unknown;
@@ -415,7 +415,7 @@ public class G08HW2 {
             }
 
             // If no A points in cluster, then use B centroid
-            if (clusterMetric._2._1() == 0){
+            if (clusterMetric._2._1() == 0) {
                 mA[clusterMetric._1] = mB[clusterMetric._1];
             }
             // If no B points in cluster, then use A centroid

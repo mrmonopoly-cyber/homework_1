@@ -357,7 +357,7 @@ public class G08HW2 {
             double[] val2 = v2.toArray();
             double[] res = new double[val1.length];
             for (int i = 0; i < val1.length; i++) {
-                res[i] += val1[i] + val2[i];
+                res[i] = val1[i] + val2[i];
             }
             return Vectors.dense(res);
         }
@@ -409,7 +409,7 @@ public class G08HW2 {
             if (clusterMetric._2._1() != 0) {
                 mA[clusterMetric._1] = ExtendedVectors.scale(clusterMetric._2._2(), 1.0 / clusterMetric._2._1());
             }
-            // Scale sumB if countB is non-zero
+
             if (clusterMetric._2._3() != 0) {
                 mB[clusterMetric._1] = ExtendedVectors.scale(clusterMetric._2._4(), 1.0 / clusterMetric._2._3());
             }

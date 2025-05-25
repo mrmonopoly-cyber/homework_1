@@ -305,6 +305,8 @@ public class G08HW2 {
         // Count points in Set B
         long countB = inputPoints.filter(point -> point._1 == InputSet.SetB).count();
         System.out.printf("N = %d, NA = %d, NB = %d\n", totalCount, countA, countB);
+        // Force action on stripped points
+        totalCount = strippedInputPoints.count();
 
         // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
         // K-MEANS CLUSTERING

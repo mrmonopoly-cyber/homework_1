@@ -202,7 +202,7 @@ public class G08HW3 {
         List<Tuple2<Long,Long>> trueFrequencies = CountMin(distinctKeys,histogram.size(),histogram.size());
         trueFrequencies.sort(CompPointFreq);
         List<Tuple2<Long,Long>> cmFrequencies = CountMin(distinctKeys,K,K);
-        List<Tuple2<Long,Long>> csFrequencies = CountMin(distinctKeys,K,K);
+        List<Tuple2<Long,Long>> csFrequencies = CountSketch(distinctKeys,K,K);
 
         float errorEstimationCM = frequencyRelativeError(trueFrequencies, cmFrequencies, K);
         float errorEstimationCS = frequencyRelativeError(trueFrequencies, csFrequencies, K);
@@ -246,7 +246,7 @@ public class G08HW3 {
 
                 System.out.printf("Item %d True Frequency = %d Estimated Frequency with CM = %d",
                         point._1(), point._2(), cmFreq);
-                
+
             }
         }
 

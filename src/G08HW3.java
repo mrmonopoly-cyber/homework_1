@@ -1,37 +1,119 @@
-import org.apache.hadoop.util.hash.Hash;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
-import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.StorageLevels;
 import org.apache.spark.streaming.Durations;
-import org.apache.spark.streaming.api.java.JavaPairDStream;
 import org.apache.spark.streaming.api.java.JavaStreamingContext;
-import scala.App;
 import scala.Tuple2;
 
 import java.util.*;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
+
+
+/**
+ * This class create a CountMinSketch object that implements frequency estimation for any element in the input universe
+ * It also computes the top K heavy hitters (k most frequent items) on the fly
+ */
+class CountMinSketch {
+
+    final int P = 8191;
+
+    protected int d;
+    protected int w;
+    protected List<Function<Long, Integer>> h;
+    protected long s[][];
+
+    public CountMinSketch(int d, int w) {
+        this.d = d;
+        this.w = w;
+        this.h = new ArrayList<>();
+        this.s = new long[d][w];
+
+        Random rng = new Random();
+        for (int i = 0; i < d; i++) {
+            long a = rng.nextInt(P - 1) + 1;
+            long b = rng.nextInt(P);
+            h.add((x) -> (int) ((a * x + b) % P) % w);
+        }
+    }
+
+    public void update(long val) {
+        // Update sketch
+        for (int r = 0; r < d; r++) {
+            s[r][h.get(r).apply(val)] += 1;
+        }
+    }
+
+    public long getFrequency(long val) {
+        long freq = Integer.MAX_VALUE;
+        for (int r = 0; r < d; r++) {
+            freq = Math.min(s[r][h.get(r).apply(val)], freq);
+        }
+        return freq;
+    }
+
+    public List<Tuple2<Long, Long>> getFrequencies(List<Long> values) {
+        List<Tuple2<Long, Long>> res = new ArrayList<>();
+        for (long val : values) {
+            res.add(new Tuple2<>(val, getFrequency(val)));
+        }
+        return res;
+    }
+}
+
+class CountSketch extends CountMinSketch {
+
+    private List<Function<Long, Integer>> g;
+
+    public CountSketch(int d, int w) {
+        super(d, w);
+        this.g = new ArrayList<>();
+
+        Random rng = new Random();
+        for (int r = 0; r < d; r++) {
+            long e = rng.nextInt(P - 1) + 1;
+            long f = rng.nextInt(P);
+            g.add((x) -> ((e * x + f) % P) % 2 == 0 ? 1 : -1);
+        }
+    }
+
+    @Override
+    public void update(long val) {
+        for (int r = 0; r < d; r++) {
+            s[r][h.get(r).apply(val)] += g.get(r).apply(val);
+        }
+    }
+
+    @Override
+    public long getFrequency(long val) {
+        long[] freq = new long[d];
+        for (int r = 0; r < d; r++) {
+            freq[r] = s[r][h.get(r).apply(val)] * g.get(r).apply(val);
+        }
+
+        Arrays.sort(freq);
+        if (freq.length % 2 == 0) {
+            return (freq[freq.length / 2 - 1] + freq[freq.length / 2]) / 2;
+        } else {
+            return freq[freq.length / 2];
+        }
+    }
+}
 
 public class G08HW3 {
 
-    private static List<Tuple2<Long,Long>> topKHeavyHitter(List<Tuple2<Long,Long>> trueFreqList, int k) {
-        ArrayList<Tuple2<Long,Long>> res = new ArrayList<>(0);
+    private static List<Tuple2<Long, Long>> topKHeavyHitter(List<Tuple2<Long, Long>> trueFreqList, int k) {
+        ArrayList<Tuple2<Long, Long>> res = new ArrayList<>(0);
         Long phi_k = trueFreqList.get(k)._2();
-        int i=0;
-        for (Tuple2<Long,Long> point : trueFreqList){
-            if (point._2()>= phi_k)
-            {
+        int i = 0;
+        for (Tuple2<Long, Long> point : trueFreqList) {
+            if (point._2() >= phi_k) {
                 res.add(point);
                 i++;
             }
-            if (i>=k) {
+            if (i >= k) {
                 break;
             }
         }
@@ -39,38 +121,37 @@ public class G08HW3 {
         return res;
     }
 
-    private static Long frequencyRelativeError(List<Tuple2<Long,Long >> trueFrequencies, List<Tuple2<Long,Long>> estimatedFrequencies, int k) {
-        List<Tuple2<Long,Long>> topKHeavyHitters = topKHeavyHitter(trueFrequencies,k);
+    private static Long frequencyRelativeError(List<Tuple2<Long, Long>> trueFrequencies, List<Tuple2<Long, Long>> estimatedFrequencies, int k) {
+        List<Tuple2<Long, Long>> topKHeavyHitters = topKHeavyHitter(trueFrequencies, k);
         SparkConf sparkConf = new SparkConf().setAppName("FindKTopApprox").setMaster("local[*]");
         JavaSparkContext sparkContext = new JavaSparkContext(sparkConf);
 
         Long errorSum = sparkContext.parallelize(estimatedFrequencies)
                 .repartition(k)
-                .map( (point) -> {
+                .map((point) -> {
                     List<Tuple2<Long, Long>> eleMaybe = topKHeavyHitters
                             .stream()
                             .filter((a) -> a._1().equals(point._1()))
                             .collect(Collectors.toList());
-                    if (eleMaybe.size()!=0)
-                    {
-                        Tuple2<Long,Long> topHitter = eleMaybe.get(0);
-                        return Math.abs(topHitter._2() - point._2())/topHitter._2();
-                    }else {
+                    if (eleMaybe.size() != 0) {
+                        Tuple2<Long, Long> topHitter = eleMaybe.get(0);
+                        return Math.abs(topHitter._2() - point._2()) / topHitter._2();
+                    } else {
                         return new Long(0);
                     }
                 })
                 .reduce(Long::sum);
 
-        return errorSum/k;
+        return errorSum / k;
     }
 
-    private static List<Tuple2<Long,Long>> CountMin(List<Long> u, int d, int w) {
-        List<Tuple2<Long,Long>> res = new ArrayList<>();
+    private static List<Tuple2<Long, Long>> CountMin(List<Long> u, int d, int w) {
+        List<Tuple2<Long, Long>> res = new ArrayList<>();
         return res;
     }
 
-    private static List<Tuple2<Long,Long>> CountSketch(List<Long> u, int d, int w) {
-        List<Tuple2<Long,Long>> res = new ArrayList<>();
+    private static List<Tuple2<Long, Long>> CountSketch(List<Long> u, int d, int w) {
+        List<Tuple2<Long, Long>> res = new ArrayList<>();
         return res;
     }
 
@@ -131,6 +212,8 @@ public class G08HW3 {
         long[] streamLength = new long[1]; // Stream length (an array to be passed by reference)
         streamLength[0] = 0L;
         HashMap<Long, Long> histogram = new HashMap<>(); // Hash Table for the distinct elements
+        CountMinSketch cms = new CountMinSketch(D, W);
+        CountSketch cs = new CountSketch(D, W);
 
         // CODE TO PROCESS AN UNBOUNDED STREAM OF DATA IN BATCHES
         sc.socketTextStream("algo.dei.unipd.it", P, StorageLevels.MEMORY_AND_DISK)
@@ -145,18 +228,28 @@ public class G08HW3 {
                         if (batchSize > 0) {
                             System.out.println("Batch size at time [" + time + "] is: " + batchSize);
                             // Extract the distinct items from the batch
-                            Map<Long, Long> batchItems = batch
+                            JavaPairRDD<Long, Long> batchItems = batch
                                     .mapToPair(s -> new Tuple2<>(Long.parseLong(s), 1L))
-                                    .reduceByKey((i1, i2) -> 1L)
-                                    .collectAsMap();
+                                    .cache();
+
                             // Update the streaming state. If the overall count of processed items reaches the
                             // THRESHOLD value (among all batches processed so far), subsequent items of the
                             // current batch are ignored, and no further batches will be processed
-                            for (Map.Entry<Long, Long> pair : batchItems.entrySet()) {
+                            List<Long> batchItemsList = batchItems.keys().collect();
+                            for (long val : batchItemsList) {
+                                cms.update(val);
+                                cms.update(val);
+                            }
+
+                            Map<Long, Long> batchItemsMap = batchItems
+                                    .reduceByKey((i1, i2) -> 1L)
+                                    .collectAsMap();
+                            for (Map.Entry<Long, Long> pair : batchItemsMap.entrySet()) {
                                 if (!histogram.containsKey(pair.getKey())) {
                                     histogram.put(pair.getKey(), 1L);
                                 }
                             }
+
                             // If we wanted, here we could run some additional code on the global histogram
                             if (streamLength[0] >= T) {
                                 // Stop receiving and processing further batches
@@ -188,31 +281,32 @@ public class G08HW3 {
         // COMPUTE AND PRINT FINAL STATISTICS
         System.out.println("Number of processed items = " + streamLength[0]);
         System.out.println("Number of distinct items = " + histogram.size());
-        long max = 0L;
-        ArrayList<Long> distinctKeys = new ArrayList<>(histogram.keySet());
 
-        Collections.sort(distinctKeys, Collections.reverseOrder());
+        List<Tuple2<Long, Long>> trueFrequencies = histogram.entrySet().stream()
+                .sorted(Map.Entry.<Long, Long>comparingByValue().reversed())
+                .map(entry -> new Tuple2<>(entry.getKey(), entry.getValue()))
+                .collect(Collectors.toList());
 
-        Comparator<? super Tuple2<Long,Long>> CompPointFreq = new Comparator<Tuple2<Long,Long>>() {
-            @Override
-            public int compare(Tuple2<Long, Long> o1, Tuple2<Long, Long> o2) {
-                return (int) -(o1._2() - o2._2());
-            }
-        };
-        List<Tuple2<Long,Long>> trueFrequencies = CountMin(distinctKeys,histogram.size(),histogram.size());
-        trueFrequencies.sort(CompPointFreq);
-        List<Tuple2<Long,Long>> cmFrequencies = CountMin(distinctKeys,K,K);
-        List<Tuple2<Long,Long>> csFrequencies = CountSketch(distinctKeys,K,K);
+        long phiK = trueFrequencies.get(K)._2;
 
-        float errorEstimationCM = frequencyRelativeError(trueFrequencies, cmFrequencies, K);
-        float errorEstimationCS = frequencyRelativeError(trueFrequencies, csFrequencies, K);
-        
+        List<Tuple2<Long, Long>> topKFrequencies = trueFrequencies.stream()
+                .filter(x -> x._2 >= phiK)
+                .collect(Collectors.toList());
+        List<Long> topKElements = topKFrequencies.stream()
+                .map(x -> x._1)
+                .collect(Collectors.toList());
+
+        List<Tuple2<Long, Long>> cmFrequencies = cms.getFrequencies(topKElements);
+        List<Tuple2<Long, Long>> csFrequencies = cs.getFrequencies(topKElements);
+
+        float errorEstimationCM = frequencyRelativeError(topKFrequencies, cmFrequencies, K);
+        float errorEstimationCS = frequencyRelativeError(topKFrequencies, csFrequencies, K);
+
         // Number of Top-K Heavy Hitters = 30
         // Avg Relative Error for Top-K Heavy Hitters with CM = 137.00788548942958
         // Avg Relative Error for Top-K Heavy Hitters with CS = 2.3336001311237653
 
-        List<Tuple2<Long,Long>> topKHeavyHitter = topKHeavyHitter(trueFrequencies,K);
-        System.out.printf("Number of Top-K Heavy Hitters = %d\n", topKHeavyHitter.size());
+        System.out.printf("Number of Top-K Heavy Hitters = %d\n", topKFrequencies.size());
         System.out.printf("Avg Relative Error for Top-K Heavy Hitters with CM = %f\n", errorEstimationCM);
         System.out.printf("Avg Relative Error for Top-K Heavy Hitters with CS = %f\n", errorEstimationCS);
 
@@ -227,30 +321,11 @@ public class G08HW3 {
         //Item 1690049656 True Frequency = 32362 Estimated Frequency with CM = 33159
         //Item 1936875793 True Frequency = 32286 Estimated Frequency with CM = 33091
 
-        Comparator<? super Tuple2<Long,Long>> topKHeavyHitterSort= new Comparator<Tuple2<Long,Long>>() {
-            @Override
-            public int compare(Tuple2<Long, Long> o1, Tuple2<Long, Long> o2) {
-                return o1._1().compareTo(o2._1());
-            }
-        };
-
-        topKHeavyHitter.sort(topKHeavyHitterSort);
-        if (topKHeavyHitter.size() <=10) {
-            for (Tuple2<Long,Long> point : topKHeavyHitter) {
-                Long cmFreq = cmFrequencies.
-                        stream().
-                        filter(a -> a._1().equals(point._1()))
-                        .collect(Collectors.toList())
-                        .get(0)
-                        ._2();
-
+        if (topKFrequencies.size() <= 10) {
+            for (Tuple2<Long, Long> element : topKFrequencies) {
                 System.out.printf("Item %d True Frequency = %d Estimated Frequency with CM = %d",
-                        point._1(), point._2(), cmFreq);
-
+                        element._1, element._2, cms.getFrequency(element._1));
             }
         }
-
-
-        //System.out.println("Largest item = " + distinctKeys.get(0));
     }
 }

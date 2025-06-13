@@ -1,6 +1,5 @@
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
-import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.StorageLevels;
 import org.apache.spark.streaming.Durations;
 import org.apache.spark.streaming.api.java.JavaStreamingContext;
@@ -104,55 +103,29 @@ class CountSketch extends CountMinSketch {
 
 public class G08HW3 {
 
-    private static List<Tuple2<Long, Long>> topKHeavyHitter(List<Tuple2<Long, Long>> trueFreqList, int k) {
-        ArrayList<Tuple2<Long, Long>> res = new ArrayList<>(0);
-        Long phi_k = trueFreqList.get(k)._2();
-        int i = 0;
-        for (Tuple2<Long, Long> point : trueFreqList) {
-            if (point._2() >= phi_k) {
-                res.add(point);
-                i++;
-            }
-            if (i >= k) {
-                break;
-            }
+    // It already receives the top K heavy hitters
+    private static double frequencyRelativeError(List<Tuple2<Long, Long>> trueFrequencies, List<Tuple2<Long, Long>> estimatedFrequencies) {
+        double error = 0.0;
+        int items = 0;
+
+        if (trueFrequencies.size() != estimatedFrequencies.size()) {
+            throw new IllegalArgumentException("True and estimated frequencies must be the same size");
         }
 
-        return res;
-    }
+        for (int i = 0; i < trueFrequencies.size(); i++) {
+            Tuple2<Long, Long> groundTruth = trueFrequencies.get(i);
+            Tuple2<Long, Long> estimate = estimatedFrequencies.get(i);
+            if (!groundTruth._1.equals(estimate._1)) {
+                throw new IllegalArgumentException("True and estimated key not matching: true=" + groundTruth._1 + ", estimate=" + estimate._1 );
+            }
+            if (groundTruth._2 == 0) {
+                break;
+            }
+            error += Math.abs((double) (groundTruth._2 - estimate._2) / groundTruth._2);
+            items++;
+        }
 
-    private static Long frequencyRelativeError(List<Tuple2<Long, Long>> trueFrequencies, List<Tuple2<Long, Long>> estimatedFrequencies, int k) {
-        List<Tuple2<Long, Long>> topKHeavyHitters = topKHeavyHitter(trueFrequencies, k);
-        SparkConf sparkConf = new SparkConf().setAppName("FindKTopApprox").setMaster("local[*]");
-        JavaSparkContext sparkContext = new JavaSparkContext(sparkConf);
-
-        Long errorSum = sparkContext.parallelize(estimatedFrequencies)
-                .repartition(k)
-                .map((point) -> {
-                    List<Tuple2<Long, Long>> eleMaybe = topKHeavyHitters
-                            .stream()
-                            .filter((a) -> a._1().equals(point._1()))
-                            .collect(Collectors.toList());
-                    if (eleMaybe.size() != 0) {
-                        Tuple2<Long, Long> topHitter = eleMaybe.get(0);
-                        return Math.abs(topHitter._2() - point._2()) / topHitter._2();
-                    } else {
-                        return new Long(0);
-                    }
-                })
-                .reduce(Long::sum);
-
-        return errorSum / k;
-    }
-
-    private static List<Tuple2<Long, Long>> CountMin(List<Long> u, int d, int w) {
-        List<Tuple2<Long, Long>> res = new ArrayList<>();
-        return res;
-    }
-
-    private static List<Tuple2<Long, Long>> CountSketch(List<Long> u, int d, int w) {
-        List<Tuple2<Long, Long>> res = new ArrayList<>();
-        return res;
+        return (items > 0) ? (error / items) : Double.NaN;
     }
 
     // After how many items should we stop?
@@ -238,15 +211,17 @@ public class G08HW3 {
                             List<Long> batchItemsList = batchItems.keys().collect();
                             for (long val : batchItemsList) {
                                 cms.update(val);
-                                cms.update(val);
+                                cs.update(val);
                             }
 
                             Map<Long, Long> batchItemsMap = batchItems
-                                    .reduceByKey((i1, i2) -> 1L)
+                                    .reduceByKey((i1, i2) -> i1 + i2)
                                     .collectAsMap();
                             for (Map.Entry<Long, Long> pair : batchItemsMap.entrySet()) {
                                 if (!histogram.containsKey(pair.getKey())) {
-                                    histogram.put(pair.getKey(), 1L);
+                                    histogram.put(pair.getKey(), pair.getValue());
+                                } else {
+                                    histogram.computeIfPresent(pair.getKey(), (k, v) -> v + pair.getValue());
                                 }
                             }
 
@@ -255,7 +230,6 @@ public class G08HW3 {
                                 // Stop receiving and processing further batches
                                 stoppingSemaphore.release();
                             }
-
                         }
                     }
                 });
@@ -287,7 +261,8 @@ public class G08HW3 {
                 .map(entry -> new Tuple2<>(entry.getKey(), entry.getValue()))
                 .collect(Collectors.toList());
 
-        long phiK = trueFrequencies.get(K)._2;
+        long phiK = trueFrequencies.get(K - 1)._2;
+        System.out.println("Phi(K) = " + phiK);
 
         List<Tuple2<Long, Long>> topKFrequencies = trueFrequencies.stream()
                 .filter(x -> x._2 >= phiK)
@@ -299,8 +274,8 @@ public class G08HW3 {
         List<Tuple2<Long, Long>> cmFrequencies = cms.getFrequencies(topKElements);
         List<Tuple2<Long, Long>> csFrequencies = cs.getFrequencies(topKElements);
 
-        float errorEstimationCM = frequencyRelativeError(topKFrequencies, cmFrequencies, K);
-        float errorEstimationCS = frequencyRelativeError(topKFrequencies, csFrequencies, K);
+        double errorEstimationCM = frequencyRelativeError(topKFrequencies, cmFrequencies);
+        double errorEstimationCS = frequencyRelativeError(topKFrequencies, csFrequencies);
 
         // Number of Top-K Heavy Hitters = 30
         // Avg Relative Error for Top-K Heavy Hitters with CM = 137.00788548942958
@@ -323,7 +298,7 @@ public class G08HW3 {
 
         if (topKFrequencies.size() <= 10) {
             for (Tuple2<Long, Long> element : topKFrequencies) {
-                System.out.printf("Item %d True Frequency = %d Estimated Frequency with CM = %d",
+                System.out.printf("Item %d True Frequency = %d Estimated Frequency with CM = %d\n",
                         element._1, element._2, cms.getFrequency(element._1));
             }
         }
